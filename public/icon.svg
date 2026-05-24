@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="skyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#22d3ee" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <drop-shadow dx="0" dy="8" stdDeviation="12" flood-color="#0284c7" flood-opacity="0.2" />
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="#f8fafc" rx="128" />
+  <g filter="url(#shadow)">
+    <!-- Heart combined with dining or weight icon -->
+    <path d="M256,410 C256,410 130,314 130,220 C130,158 178,110 236,110 C244,110 251,111 256,113 C261,111 268,110 276,110 C334,110 382,158 382,220 C382,314 256,410 256,410 Z" fill="url(#skyGrad)" />
+    <!-- Fork & knife details styled as a neat negative space or interior glyph -->
+    <path d="M245,190 L245,250 M267,190 L267,250" stroke="#f8fafc" stroke-width="6" stroke-linecap="round" />
+    <path d="M235,195 C235,210 277,210 277,195" fill="none" stroke="#f8fafc" stroke-width="6" stroke-linecap="round" />
+    <!-- A small sparkling balance spark inside -->
+    <path d="M256,275 L256,285 M251,280 L261,280" stroke="#ffd700" stroke-width="4" stroke-linecap="round" />
+  </g>
+</svg>
