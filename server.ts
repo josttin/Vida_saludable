@@ -3,8 +3,8 @@ import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
-import { calculateFitCycle, getInitialState } from "./src/fitCycleEngine";
-import { FitCycleState, FitCycleAPIResponse, MealType } from "./src/types";
+import { processFitCycle, getInitialState } from "./src/fitCycleEngine";
+import { FitCycleState, MealType } from "./src/types";
 
 // Load environment variables
 dotenv.config();
@@ -39,7 +39,7 @@ function getGeminiClient(): GoogleGenAI {
 app.post("/api/fitcycle/calculate", (req, res) => {
   try {
     const stateInput: FitCycleState = req.body.state || getInitialState();
-    const result = calculateFitCycle(stateInput);
+    const result = processFitCycle(stateInput);
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -143,7 +143,7 @@ Analiza el mensaje y devuelve el estado FitCycleState completamente actualizado.
         const updatedState: FitCycleState = JSON.parse(responseText);
         
         // programmatically recalculate response with strict rules
-        const fitCycleData = calculateFitCycle(updatedState);
+        const fitCycleData = processFitCycle(updatedState);
         return res.json({
           state: updatedState,
           data: fitCycleData
@@ -209,7 +209,7 @@ Analiza el mensaje y devuelve el estado FitCycleState completamente actualizado.
       updatedState.current_week = Math.min(8, updatedState.current_week + 1);
     }
 
-    const fitCycleData = calculateFitCycle(updatedState);
+    const fitCycleData = processFitCycle(updatedState);
     res.json({
       state: updatedState,
       data: fitCycleData,

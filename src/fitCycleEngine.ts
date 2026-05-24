@@ -1,30 +1,18 @@
-import { FitCycleState, FitCycleAPIResponse, MealType, SemanalInfo, BloqueosActivos, Inventario } from "./types";
+import { FitCycleState, SemanalInfo, MealType, FitCycleCalculatedData, SmartSugestion } from "./types";
 
-export const INITIAL_INVENTORY = {
-  hamburguesa: 2.0,
-  salchipapa: 1.0,
-  pizza: 2.0,
-  sushi: 1.0,
-  perro_caliente: 1.0,
-  sandwich_callejero: 1.0,
-  arepa: 1.0,
-  extras: 4.0
-};
-
-// Help generate initial state with 12 weeks to secure infinite support out of the gate
+/**
+ * Default starter history helper for infinite eternal tracking.
+ */
 export function getInitialState(): FitCycleState {
   const history: SemanalInfo[] = [];
+  // Build a generous initial 12 weeks
   for (let i = 1; i <= 12; i++) {
     history.push({
       semana: i,
       cena_novio: null,
       cena_novia: null,
       cena: null,
-      extra: false,
-      castigo_task: undefined,
-      castigo_completed: false,
-      infraction_detected: false,
-      infraction_details: ""
+      extra: false
     });
   }
   return {
@@ -35,12 +23,12 @@ export function getInitialState(): FitCycleState {
 }
 
 /**
- * Ensures a history array is continuously updated with upcoming weeks so the dashboard is eternal.
+ * Ensures upcoming weeks exist so the calendar can grow forever.
  */
 export function ensureWeeksExist(history: SemanalInfo[], activeWeek: number): SemanalInfo[] {
   const updated = [...history];
   const maxWeek = updated.reduce((max, h) => Math.max(max, h.semana), 0);
-  const targetMax = Math.max(activeWeek + 4, 12); // Always leave at least 4 future weeks visible
+  const targetMax = Math.max(activeWeek + 4, 12); // Always prepare at least 4 future weeks ahead
   
   if (maxWeek < targetMax) {
     for (let w = maxWeek + 1; w <= targetMax; w++) {
@@ -49,11 +37,7 @@ export function ensureWeeksExist(history: SemanalInfo[], activeWeek: number): Se
         cena_novio: null,
         cena_novia: null,
         cena: null,
-        extra: false,
-        castigo_task: undefined,
-        castigo_completed: false,
-        infraction_detected: false,
-        infraction_details: ""
+        extra: false
       });
     }
   }
@@ -61,41 +45,14 @@ export function ensureWeeksExist(history: SemanalInfo[], activeWeek: number): Se
 }
 
 /**
- * Technical medical-metabolic corrective physical tasks ("Castigos Clínicos") to reset glycogen levels
+ * Evaluates the eating history, flags infractions retroactively (consecutive abuses + exclusions),
+ * and dynamically calculates current locks and customized suggestions.
  */
-export function calculateCastigo(novio: MealType | null, novia: MealType | null, extra: boolean, isDoubleLock: boolean = false): string | null {
-  if (!novio && !novia && !extra) return null;
+export function processFitCycle(state: FitCycleState): FitCycleCalculatedData {
+  const { cycle_start_date, history } = state;
 
-  const combined = [novio, novia].filter(Boolean) as MealType[];
-  const hasHeavyGrasa = combined.some(m => m === "Salchipapa" || m === "Perro Caliente" || m === "Sándwich Callejero");
-  
-  let baseTask = "";
-
-  if (hasHeavyGrasa) {
-    baseTask = "🚨 Protocolo Sódico Intensivo: Realizar 45 min de cardio LISS (caminata inclinada) en ayunas lunes, martes y miércoles, más hidratación de 4.5L diarios para limpiar receptores.";
-  } else {
-    baseTask = "⚡ Resensibilización de Insulina: Recortar carbohidratos simples el lunes y realizar entrenamiento de piernas de altas repeticiones el miércoles para re-sensibilizar receptores.";
-  }
-
-  if (extra) {
-    baseTask += " 🍧 [Bloqueo Dopamínico]: Evitar edulcorantes artificiales de lunes a jueves para resetear antojos dulces.";
-  }
-
-  if (isDoubleLock) {
-    baseTask += " 🔒 [Doble Castigo Activo]: Se ha infringido una restricción de planificación de fin de semana. Como compensadora metabólica, tienen DOBLE semana de bloqueo consecutivo de salchipapas y dulces.";
-  }
-
-  return baseTask;
-}
-
-/**
- * Computes all rules, checks for Fri-Sun infractions, and applies penalties to upcoming weeks & stock.
- */
-export function calculateFitCycle(state: FitCycleState): FitCycleAPIResponse {
-  const { current_week, cycle_start_date, history } = state;
-
-  // 1. Calculate automatized current week based on date if initialized
-  let activeWeek = current_week;
+  // 1. Calculate active week based on elapsed date since first meal, remaining strictly in Week 1 until initialized
+  let activeWeek = 1;
   if (cycle_start_date) {
     const startDate = new Date(cycle_start_date);
     const now = new Date();
@@ -106,195 +63,267 @@ export function calculateFitCycle(state: FitCycleState): FitCycleAPIResponse {
     }
   }
 
-  // 2. Compute 8-week block / epoch for modular stock calculations
-  // Weeks 1-8 is block 1, Weeks 9-16 is block 2, Weeks 17-24 is block 3...
-  const currentBlockIndex = Math.floor((activeWeek - 1) / 8) + 1;
-  const blockStartWeek = (currentBlockIndex - 1) * 8 + 1;
-  const blockEndWeek = currentBlockIndex * 8;
+  // Ensure we evaluate weeks up to the currently calculated active week
+  // Let's analyze the entire history array step-by-step to identify infractions:
+  // For each week, an infraction happens if they ate something that violated blocking rules.
+  let isDoubleLockedByPreviousInfraction = false;
 
-  // Assemble history with infractions flagged dynamically from past weeks up to the present
-  // To evaluate infractions, we iterate from Week 1 to current/future weeks:
-  let totalInfractionsInCurrentBlock = 0;
-  let doubleLockActiveForSubsequentWeeks = false;
-  let doubleLockWeeksRemaining = 0; // Counts how many upcoming weeks are double-locked
-
-  // Temporary list to process consecutive blocks
-  const processedWeeks = history.map((w) => {
+  const evaluatedHistory = history.map((w, index) => {
     const weekNum = w.semana;
-    const isCurrentOrPast = weekNum <= activeWeek;
     
-    // Check if previous week had items
-    const prevWeek = history.find(h => h.semana === weekNum - 1);
-    const hadSalchipapaLastWeek = prevWeek ? (prevWeek.cena_novio === "Salchipapa" || prevWeek.cena_novia === "Salchipapa") : false;
-    const hadExtraLastWeek = prevWeek ? prevWeek.extra : false;
+    // We only evaluate infractions for weeks that have passed or are active
+    const isPastOrActive = weekNum <= activeWeek;
+    if (!isPastOrActive) {
+      return { ...w, infraction_detected: false, infraction_details: "" };
+    }
 
-    // Check infractions
+    const previousWeek = history.find(h => h.semana === weekNum - 1);
+    const hadSalchipapaLastWeek = previousWeek ? (previousWeek.cena_novio === "Salchipapa" || previousWeek.cena_novia === "Salchipapa") : false;
+    const hadExtraLastWeek = previousWeek ? previousWeek.extra : false;
+
     let infraction_detected = false;
     let infraction_details = "";
 
-    // If they actually ate something ("Viernes, Sábado o Domingo"), let's check if they bypassed limits:
-    if (isCurrentOrPast) {
-      const meals = [w.cena_novio, w.cena_novia].filter(Boolean) as MealType[];
-      
-      // 1. Consecutivity infraction: Ate Salchipapa consecutively
-      if (hadSalchipapaLastWeek && meals.includes("Salchipapa")) {
-        infraction_detected = true;
-        infraction_details += "• Consumo consecutivo prohibido de Salchipapa. ";
-      }
+    // 1. Consecutive Salchipapa rule
+    const hasSalchipapaThisWeek = w.cena_novio === "Salchipapa" || w.cena_novia === "Salchipapa";
+    if (hadSalchipapaLastWeek && hasSalchipapaThisWeek) {
+      infraction_detected = true;
+      infraction_details += "• Salchipapas consecutivas prohibidas. ";
+    }
 
-      // 2. Consecutivity sweet extra transgression:
-      if (hadExtraLastWeek && w.extra) {
-        infraction_detected = true;
-        infraction_details += "• Racha de Dulce consecutiva violada. ";
-      }
+    // 2. Consecutive Extra Sweets rule
+    if (hadExtraLastWeek && w.extra) {
+      infraction_detected = true;
+      infraction_details += "• Extras Dulces consecutivos prohibidos. ";
+    }
 
-      // 3. Mutual exclusion transgression (Salchipapa + Extra sweet in same week)
-      if (meals.includes("Salchipapa") && w.extra) {
+    // 3. Mutual Exclude Salchipapa + Extra Sweet within the same week
+    if (hasSalchipapaThisWeek && w.extra) {
+      infraction_detected = true;
+      infraction_details += "• Combinación prohibida de Salchipapa y Dulce Extra la misma semana. ";
+    }
+
+    // 4. Double Lock infraction (If previous week was double-locked due to infraction, and they registered blocked elements)
+    if (isDoubleLockedByPreviousInfraction) {
+      const hasAnyExtraOrSalchipapa = hasSalchipapaThisWeek || w.extra;
+      if (hasAnyExtraOrSalchipapa) {
         infraction_detected = true;
-        infraction_details += "• Combinación prohibida de Salchipapa y Dulce Extra en el mismo fin de semana. ";
+        infraction_details += "• Evasión de bloqueo por castigo activo de la semana anterior. ";
       }
     }
 
-    if (infraction_detected) {
-      w.infraction_detected = true;
-      w.infraction_details = infraction_details;
-      
-      // If infraction occurs in the current active 8-week block, increment penalty counts
-      if (weekNum >= blockStartWeek && weekNum <= blockEndWeek) {
-        totalInfractionsInCurrentBlock++;
-        // Trigger a 2-week double lockout!
-        doubleLockActiveForSubsequentWeeks = true;
-        doubleLockWeeksRemaining = 2;
-      }
-    } else {
-      w.infraction_detected = false;
-      w.infraction_details = "";
-      
-      if (doubleLockWeeksRemaining > 0 && weekNum > activeWeek - 2) {
-        doubleLockWeeksRemaining--;
-      } else {
-        doubleLockActiveForSubsequentWeeks = false;
-      }
-    }
+    // Set double lock status for the *NEXT* week based on this week's infraction
+    isDoubleLockedByPreviousInfraction = infraction_detected;
 
-    return w;
-  });
-
-  // Calculate consumed items inside the CURRENT 8-WEEK STOCK BLOCK
-  let hamburguesasConsumed = 0;
-  let salchipapasConsumed = 0;
-  let pizzasConsumed = 0;
-  let sushisConsumed = 0;
-  let perrosConsumed = 0;
-  let sandwichesConsumed = 0;
-  let arepasConsumed = 0;
-  let extrasConsumed = 0;
-
-  history.forEach((h) => {
-    // Only count within the bounds of the current active 8-week block
-    if (h.semana >= blockStartWeek && h.semana <= blockEndWeek) {
-      const meals = [h.cena_novio, h.cena_novia].filter(Boolean) as MealType[];
-      meals.forEach((meal) => {
-        if (meal === "Hamburguesa") hamburguesasConsumed += 0.5;
-        else if (meal === "Salchipapa") salchipapasConsumed += 0.5;
-        else if (meal === "Pizza") pizzasConsumed += 0.5;
-        else if (meal === "Sushi") sushisConsumed += 0.5;
-        else if (meal === "Perro Caliente") perrosConsumed += 0.5;
-        else if (meal === "Sándwich Callejero") sandwichesConsumed += 0.5;
-        else if (meal === "Arepa") arepasConsumed += 0.5;
-      });
-
-      if (h.extra) extrasConsumed += 1.0;
-    }
-  });
-
-  // METABOLIC PENALTY: Every infraction subtracts 0.5 portion from of ALL favorite stocks in the current active block!
-  const stockPenalty = totalInfractionsInCurrentBlock * 0.5;
-
-  const inventario: Inventario = {
-    hamburguesa: Math.max(0, INITIAL_INVENTORY.hamburguesa - hamburguesasConsumed - stockPenalty),
-    salchipapa: Math.max(0, INITIAL_INVENTORY.salchipapa - salchipapasConsumed),
-    pizza: Math.max(0, INITIAL_INVENTORY.pizza - pizzasConsumed - stockPenalty),
-    sushi: Math.max(0, INITIAL_INVENTORY.sushi - sushisConsumed - stockPenalty),
-    otra_comida: Math.max(0, INITIAL_INVENTORY.perro_caliente - perrosConsumed + INITIAL_INVENTORY.sandwich_callejero - sandwichesConsumed + INITIAL_INVENTORY.arepa - arepasConsumed),
-    extras: Math.max(0, INITIAL_INVENTORY.extras - extrasConsumed)
-  };
-
-  // Detailed remaining stock
-  const inventario_detallado = {
-    hamburguesa: Math.max(0, INITIAL_INVENTORY.hamburguesa - hamburguesasConsumed - stockPenalty),
-    salchipapa: Math.max(0, INITIAL_INVENTORY.salchipapa - salchipapasConsumed),
-    pizza: Math.max(0, INITIAL_INVENTORY.pizza - pizzasConsumed - stockPenalty),
-    sushi: Math.max(0, INITIAL_INVENTORY.sushi - sushisConsumed - stockPenalty),
-    perro_caliente: Math.max(0, INITIAL_INVENTORY.perro_caliente - perrosConsumed),
-    sandwich_callejero: Math.max(0, INITIAL_INVENTORY.sandwich_callejero - sandwichesConsumed),
-    arepa: Math.max(0, INITIAL_INVENTORY.arepa - arepasConsumed),
-    extras: Math.max(0, INITIAL_INVENTORY.extras - extrasConsumed)
-  };
-
-  // 3. Check for lockouts affecting the current active week
-  const previousWeekInfo = history.find(h => h.semana === activeWeek - 1);
-  const hadSalchipapaLastWeek = previousWeekInfo ? (previousWeekInfo.cena_novio === "Salchipapa" || previousWeekInfo.cena_novia === "Salchipapa") : false;
-  const extraHeladoBlocked = previousWeekInfo ? previousWeekInfo.extra : false;
-
-  const currentWeekInfo = history.find(h => h.semana === activeWeek);
-  const currentWeekHasSalchipapa = currentWeekInfo ? (currentWeekInfo.cena_novio === "Salchipapa" || currentWeekInfo.cena_novia === "Salchipapa") : false;
-  const currentWeekHasExtra = currentWeekInfo ? currentWeekInfo.extra : false;
-
-  // If a double lock is active or any infraction has happened nearby, lock them out!
-  const hasDoubleLockActive = totalInfractionsInCurrentBlock > 0;
-
-  const bloqueos_activos: BloqueosActivos = {
-    salchipapa: hadSalchipapaLastWeek || currentWeekHasExtra || hasDoubleLockActive,
-    extra_helado: extraHeladoBlocked || currentWeekHasSalchipapa || hasDoubleLockActive
-  };
-
-  // 4. Permitted options (strictly checked during Mon-Thu planning)
-  const opciones_permitidas: MealType[] = [];
-  if (inventario_detallado.hamburguesa > 0) opciones_permitidas.push("Hamburguesa");
-  if (inventario_detallado.pizza > 0) opciones_permitidas.push("Pizza");
-  if (inventario_detallado.sushi > 0) opciones_permitidas.push("Sushi");
-  if (inventario_detallado.perro_caliente > 0) opciones_permitidas.push("Perro Caliente");
-  if (inventario_detallado.sandwich_callejero > 0) opciones_permitidas.push("Sándwich Callejero");
-  if (inventario_detallado.arepa > 0) opciones_permitidas.push("Arepa");
-
-  if (inventario_detallado.salchipapa > 0 && !bloqueos_activos.salchipapa) {
-    opciones_permitidas.push("Salchipapa");
-  }
-
-  // Determine state title
-  const hasPenanceThisWeek = (bloqueos_activos.salchipapa || bloqueos_activos.extra_helado);
-  const estado_hoy_titulo = hasPenanceThisWeek ? "Zona de Bloqueo" : "Zona Segura";
-  const estado_hoy_color = hasPenanceThisWeek ? "rojo" : "celeste";
-
-  let mensaje_motivacional = "";
-  if (!cycle_start_date) {
-    mensaje_motivacional = "Registren su primer cheat meal para iniciar automáticamente el cronograma permanente eterno.";
-  } else if (hasDoubleLockActive) {
-    mensaje_motivacional = `⚠️ ¡Castigo Activo por deslices de fin de semana! Capacidad de stock reducida en -${stockPenalty}p y bloqueo de salchipapa/dulces impuesto por 2 semanas.`;
-  } else {
-    mensaje_motivacional = `Semana ${activeWeek} en curso (Bloque 8-sem número ${currentBlockIndex}). Mantengan el autocontrol de lunes a viernes.`;
-  }
-
-  // Prediction mapping
-  const calendario_prediccion = history.map((h) => {
-    const isCompleted = h.cena_novio !== null || h.cena_novia !== null;
     return {
-      semana: h.semana,
-      estado: isCompleted ? "completada" : (h.semana === activeWeek ? "permitido_con_extra" : "sin_registro")
+      ...w,
+      infraction_detected,
+      infraction_details: infraction_details.trim()
     };
   });
 
+  // Now, calculate locks affecting the current active week
+  const previousWeekInfo = evaluatedHistory.find(h => h.semana === activeWeek - 1);
+  const curWeekInfo = evaluatedHistory.find(h => h.semana === activeWeek);
+
+  const hadSalchipapaLastWeek = previousWeekInfo ? (previousWeekInfo.cena_novio === "Salchipapa" || previousWeekInfo.cena_novia === "Salchipapa") : false;
+  const hadExtraLastWeek = previousWeekInfo ? previousWeekInfo.extra : false;
+
+  // Active punishment blockade if the previous registered week had an infraction!
+  const hasPenaltyLockActive = previousWeekInfo ? (previousWeekInfo.infraction_detected || false) : false;
+
+  // Compile active blockades
+  const bloqueos_activos = {
+    salchipapa: hadSalchipapaLastWeek || hasPenaltyLockActive || (curWeekInfo ? curWeekInfo.extra : false),
+    extra_helado: hadExtraLastWeek || hasPenaltyLockActive || (curWeekInfo ? (curWeekInfo.cena_novio === "Salchipapa" || curWeekInfo.cena_novia === "Salchipapa") : false),
+    hamburguesa_pizza_penalty: hasPenaltyLockActive // Restricts heavy favourites due to metabolic penalty
+  };
+
+  // List of permitted options based on active week locks
+  const opciones_permitidas: MealType[] = ["Sushi", "Sándwich Callejero", "Perro Caliente", "Arepa"];
+  if (!bloqueos_activos.salchipapa) {
+    opciones_permitidas.push("Salchipapa");
+  }
+  if (!bloqueos_activos.hamburguesa_pizza_penalty) {
+    opciones_permitidas.push("Hamburguesa");
+    opciones_permitidas.push("Pizza");
+  }
+
+  // Calculate stats to generate recommendation
+  const allMealsProcessed: MealType[] = [];
+  evaluatedHistory.forEach((h) => {
+    if (h.semana < activeWeek) {
+      if (h.cena_novio) allMealsProcessed.push(h.cena_novio);
+      if (h.cena_novia) allMealsProcessed.push(h.cena_novia);
+    }
+  });
+
+  // Analyze frequencies
+  const mealCounts: Record<MealType, number> = {
+    Hamburguesa: 0,
+    Salchipapa: 0,
+    Pizza: 0,
+    Sushi: 0,
+    "Perro Caliente": 0,
+    "Sándwich Callejero": 0,
+    Arepa: 0
+  };
+  allMealsProcessed.forEach(m => {
+    if (mealCounts[m] !== undefined) mealCounts[m]++;
+  });
+
+  // Calculate a smart suggestion
+  let sugerencia: SmartSugestion = {
+    title: "Sugerencia Inteligente Inicial",
+    type: "same_meal",
+    message: "¡Bienvenidos a su primer cheat meal de la racha eterna! Para empezar con pie de derecho, les recomendamos coordinar y pedir el mismo plato: un delicioso Sushi o Hamburguesas juntos."
+  };
+
+  if (activeWeek > 1 && previousWeekInfo) {
+    const pNovio = previousWeekInfo.cena_novio;
+    const pNovia = previousWeekInfo.cena_novia;
+
+    // Sushi check
+    let lastTimeSushi = 999;
+    for (let u = activeWeek - 1; u >= 1; u--) {
+      const wk = evaluatedHistory.find(h => h.semana === u);
+      if (wk && (wk.cena_novio === "Sushi" || wk.cena_novia === "Sushi")) {
+        lastTimeSushi = activeWeek - u;
+        break;
+      }
+    }
+
+    if (hasPenaltyLockActive) {
+      sugerencia = {
+        title: "🛡️ Menú Compensador Activo",
+        type: "clean_balance",
+        message: "Hubo un desliz en el fin de semana anterior. Las opciones pesadas están penalizadas: Sugerimos comer Sushi o Arepas esta semana. Mantengan el organismo limpio y completen la semana sin dulce extra."
+      };
+    } else if (lastTimeSushi > 3) {
+      sugerencia = {
+        title: "🍣 ¡Hora de Sushi Saludable!",
+        type: "clean_balance",
+        message: "Llevan más de 3 semanas sin registrar Sushi. Es el cheat meal óptimo: bajo en grasas saturadas, alto en proteínas y omega-3. ¡Ideal para consentirse sin saturar el hígado!"
+      };
+    } else if (pNovio === pNovia && pNovio !== null) {
+      sugerencia = {
+        title: "🔄 Rotación de Menú (Variabilidad)",
+        type: "change_meal",
+        message: `La semana pasada comieron lo mismo (${pNovio}). Para evitar adaptaciones estomacales y mantener entretenido el paladar, hoy sugerimos cambiar a una opción diferente. ¿Qué tal unas Arepas o Sándwich Callejero?`
+      };
+    } else if (pNovio !== pNovia && pNovio !== null && pNovia !== null) {
+      sugerencia = {
+        title: "💞 Sincronía de Sabor",
+        type: "same_meal",
+        message: `La semana pasada comieron platos diferentes (${pNovio} y ${pNovia}). Hoy sugerimos unificarse y pedir lo mismo (por ejemplo, una Pizza crujiente) para facilitar la logística y compartir la experiencia.`
+      };
+    } else {
+      sugerencia = {
+        title: "🧩 Elección Libre Equilibrada",
+        type: "same_meal",
+        message: "¡Vía libre sin penalizaciones! Aprovechen esta semana para saborear una Pizza juntos si no la han comido recientemente, o un Perro Caliente para variar."
+      };
+    }
+  }
+
+  // Determine state title based on current blockades list
+  const isPenalized = bloqueos_activos.salchipapa || bloqueos_activos.extra_helado || bloqueos_activos.hamburguesa_pizza_penalty;
+  const stateTitle = isPenalized ? "Zona de Bloqueo" : "Zona Segura";
+  const stateColor = hasPenaltyLockActive ? "rojo" : (isPenalized ? "amarillo" : "celeste");
+
   return {
-    fase_actual: {
-      semana: activeWeek,
-      estado_hoy_titulo: estado_hoy_titulo as any,
-      estado_hoy_color: estado_hoy_color as any,
-      mensaje_motivacional
-    },
+    activeWeek,
+    stateTitle,
+    stateColor,
     bloqueos_activos,
     opciones_permitidas,
-    inventario,
-    calendario_prediccion: calendario_prediccion as any
+    sugerencia
+  };
+}
+
+/**
+ * Generates all stats needed for the visual dashboard of 'cómo comen'
+ */
+export function calculateCoupleStats(history: SemanalInfo[], activeWeek: number) {
+  const pastWeeks = history.filter(h => h.semana < activeWeek && (h.cena_novio !== null || h.cena_novia !== null));
+  const totalWeeks = pastWeeks.length;
+
+  if (totalWeeks === 0) {
+    return {
+      totalCheats: 0,
+      coincidenceRate: 0,
+      jossPreferences: [] as { name: string; count: number; pct: number }[],
+      nattPreferences: [] as { name: string; count: number; pct: number }[],
+      sweetToothRate: 0,
+      cleanWeeksCount: history.filter(h => h.semana <= activeWeek && h.cena !== null && !h.infraction_detected).length,
+      historicalGrade: "S+"
+    };
+  }
+
+  let coincidedCount = 0;
+  const jossCounts: Record<MealType, number> = {
+    Hamburguesa: 0,
+    Salchipapa: 0,
+    Pizza: 0,
+    Sushi: 0,
+    "Perro Caliente": 0,
+    "Sándwich Callejero": 0,
+    Arepa: 0
+  };
+  const nattCounts: Record<MealType, number> = {
+    Hamburguesa: 0,
+    Salchipapa: 0,
+    Pizza: 0,
+    Sushi: 0,
+    "Perro Caliente": 0,
+    "Sándwich Callejero": 0,
+    Arepa: 0
+  };
+  let sweetWeeks = 0;
+  let infractionsCount = 0;
+
+  pastWeeks.forEach(w => {
+    if (w.cena_novio === w.cena_novia && w.cena_novio !== null) {
+      coincidedCount++;
+    }
+    if (w.cena_novio && jossCounts[w.cena_novio] !== undefined) jossCounts[w.cena_novio]++;
+    if (w.cena_novia && nattCounts[w.cena_novia] !== undefined) nattCounts[w.cena_novia]++;
+    if (w.extra) sweetWeeks++;
+    if (w.infraction_detected) infractionsCount++;
+  });
+
+  const generateSortedPrefList = (counts: Record<MealType, number>, total: number) => {
+    return Object.entries(counts)
+      .map(([name, count]) => ({
+        name: name as MealType,
+        count,
+        pct: total > 0 ? Math.round((count / total) * 100) : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  const jossPrefs = generateSortedPrefList(jossCounts, totalWeeks);
+  const nattPrefs = generateSortedPrefList(nattCounts, totalWeeks);
+
+  const coincidenceRate = Math.round((coincidedCount / totalWeeks) * 100);
+  const sweetToothRate = Math.round((sweetWeeks / totalWeeks) * 100);
+
+  // Dynamic Grade based on self-discipline (infractions count)
+  let historicalGrade = "A+";
+  const infractionPct = infractionsCount / totalWeeks;
+  if (infractionPct === 0) historicalGrade = "S (Perfecto)";
+  else if (infractionPct <= 0.15) historicalGrade = "A (Ejemplar)";
+  else if (infractionPct <= 0.3) historicalGrade = "B (Moderado)";
+  else if (infractionPct <= 0.5) historicalGrade = "C (Alerta)";
+  else historicalGrade = "D (Descontrol metabólico)";
+
+  return {
+    totalCheats: totalWeeks * 2,
+    coincidenceRate,
+    jossPreferences: jossPrefs,
+    nattPreferences: nattPrefs,
+    sweetToothRate,
+    cleanWeeksCount: history.filter(h => h.semana < activeWeek && !h.infraction_detected).length,
+    historicalGrade
   };
 }

@@ -1,39 +1,38 @@
 import { useState, useEffect } from "react";
-import { FitCycleState, FitCycleAPIResponse, MealType, SemanalInfo } from "./types";
+import { FitCycleState, SemanalInfo, MealType } from "./types";
 import { 
   getInitialState, 
-  calculateCastigo, 
-  INITIAL_INVENTORY, 
-  calculateFitCycle, 
-  ensureWeeksExist 
+  ensureWeeksExist, 
+  processFitCycle,
+  calculateCoupleStats
 } from "./fitCycleEngine";
 import { 
   Heart, 
   Calendar, 
-  CheckCircle, 
-  Settings, 
-  Check, 
-  RotateCcw, 
-  Zap, 
+  TrendingUp, 
   Sliders, 
-  Sparkles, 
-  Award, 
-  Flame, 
-  UserCheck, 
-  Clock, 
+  ChevronRight, 
   AlertTriangle,
-  XSquare,
-  HelpCircle
+  Flame, 
+  Smile, 
+  CheckCircle, 
+  ThumbsUp, 
+  Award, 
+  Percent, 
+  Plus, 
+  Dumbbell, 
+  ArrowRightLeft, 
+  Sparkles,
+  Info
 } from "lucide-react";
 
 export default function App() {
-  // Names are strictly Joss and Natt
   const novioName = "Joss";
   const nattName = "Natt";
 
-  // State with LocalStorage persistence support
+  // Persistent State Management via LocalStorage
   const [state, setState] = useState<FitCycleState>(() => {
-    const saved = localStorage.getItem("fitcycle_couple_state_eternal_v3");
+    const saved = localStorage.getItem("fitcycle_couple_state_eternal_v4");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -41,714 +40,538 @@ export default function App() {
           return parsed;
         }
       } catch (e) {
-        console.error("Error reading cached state", e);
+        console.error("Error reading saved eternal state", e);
       }
     }
     return getInitialState();
   });
 
-  const [activeTab, setActiveTab] = useState<"calendar" | "inventory" | "penance" | "settings">("calendar");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "planning">("dashboard");
+  const [dayPhaseSim, setDayPhaseSim] = useState<"planning" | "execution">("planning"); // Mon-Thu Planificando vs Fri-Sun Comiendo
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [pwaPromptShow, setPwaPromptShow] = useState(true);
+  const [showConfig, setShowConfig] = useState(false);
 
-  // Helper to trigger clean Toast alerts
+  // Helper inside reactive loop to show transient feedback toasts safely
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 4500);
+    setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Get dynamic cellular day status
-  const getDayStatus = () => {
-    const d = new Date();
-    const day = d.getDay(); // 0 is Sunday, 1-4 is Mon-Thu, 5-6 is Fri-Sat
-    const isPreplanning = day >= 1 && day <= 4;
-    const dayNames = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-    const currentDayName = dayNames[day];
+  // Derive dynamic computations
+  const calculated = processFitCycle(state);
+  const currentComputedWeek = calculated.activeWeek;
 
-    return {
-      isPreplanning,
-      currentDayName,
-      badgeClass: isPreplanning ? "bg-cyan-100 text-cyan-800 border-cyan-200" : "bg-emerald-100 text-emerald-800 border-emerald-200",
-      badgeText: isPreplanning ? "📝 Programación" : "🔥 Ejecución Real",
-      description: isPreplanning 
-        ? "Planificación activa (Lunes a Jueves). Se prohíbe programar comidas bloqueadas o agotadas."
-        : "Registro real de consumo (Viernes a Domingo). Puedes registrar elecciones con deslices, pero implicarán castigos."
-    };
-  };
-
-  const dayStatus = getDayStatus();
-
-  // 1. Calculate automatized current week based on date if initialized
-  const calculateComputedWeek = () => {
-    if (!state.cycle_start_date) {
-      return 1;
-    }
-    const start = new Date(state.cycle_start_date);
-    const now = new Date();
-    const diffMs = now.getTime() - start.getTime();
-    if (diffMs <= 0) return 1;
-    
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    return Math.floor(diffDays / 7) + 1;
-  };
-
-  const currentComputedWeek = calculateComputedWeek();
-
-  // Run automatic continuous loop to support infinite eternal calendar entries
+  // Auto ensure that weekly blocks grow dynamically so you can view upcoming slots forever
   useEffect(() => {
-    const freshWeeks = ensureWeeksExist(state.history, currentComputedWeek);
-    if (freshWeeks.length !== state.history.length) {
-      setState(prev => ({
-        ...prev,
-        history: freshWeeks
-      }));
+    const upgradedHistory = ensureWeeksExist(state.history, currentComputedWeek);
+    if (upgradedHistory.length !== state.history.length) {
+      setState(prev => ({ ...prev, history: upgradedHistory }));
     }
   }, [currentComputedWeek, state.history.length]);
 
-  // Persist state updates to LocalStorage
+  // Sync to LocalStorage
   useEffect(() => {
-    localStorage.setItem("fitcycle_couple_state_eternal_v3", JSON.stringify(state));
+    localStorage.setItem("fitcycle_couple_state_eternal_v4", JSON.stringify(state));
   }, [state]);
 
-  // Derive dynamic engine state
-  const apiData = calculateFitCycle(state);
+  const stats = calculateCoupleStats(state.history, currentComputedWeek);
 
-  // Remaining stocks calculation for validation
-  const getDetailedStocks = () => {
-    let hamburguesasUsed = 0;
-    let salchipapasUsed = 0;
-    let pizzasUsed = 0;
-    let sushisUsed = 0;
-    let perrosUsed = 0;
-    let sandwichesUsed = 0;
-    let arepasUsed = 0;
-    let extrasUsed = 0;
+  // Identify block details affecting the current options
+  const isSalchipapaBlocked = calculated.bloqueos_activos.salchipapa;
+  const isExtraBlocked = calculated.bloqueos_activos.extra_helado;
+  const isHeavyMealsPenalized = calculated.bloqueos_activos.hamburguesa_pizza_penalty;
 
-    // Detect epoch block
-    const currentBlockIndex = Math.floor((currentComputedWeek - 1) / 8) + 1;
-    const blockStartWeek = (currentBlockIndex - 1) * 8 + 1;
-    const blockEndWeek = currentBlockIndex * 8;
-
-    // Calculate count of infractions inside the current block
-    let infractionPenalty = 0;
-    state.history.forEach((h) => {
-      if (h.semana >= blockStartWeek && h.semana <= blockEndWeek) {
-        if (h.infraction_detected) infractionPenalty += 0.5;
-
-        const meals = [h.cena_novio, h.cena_novia].filter(Boolean) as MealType[];
-        meals.forEach((m) => {
-          if (m === "Hamburguesa") hamburguesasUsed += 0.5;
-          else if (m === "Salchipapa") salchipapasUsed += 0.5;
-          else if (m === "Pizza") pizzasUsed += 0.5;
-          else if (m === "Sushi") sushisUsed += 0.5;
-          else if (m === "Perro Caliente") perrosUsed += 0.5;
-          else if (m === "Sándwich Callejero") sandwichesUsed += 0.5;
-          else if (m === "Arepa") arepasUsed += 0.5;
-        });
-
-        if (h.extra) extrasUsed += 1.0;
-      }
-    });
-
-    return {
-      hamburguesa: Math.max(0, INITIAL_INVENTORY.hamburguesa - hamburguesasUsed - infractionPenalty),
-      salchipapa: Math.max(0, INITIAL_INVENTORY.salchipapa - salchipapasUsed),
-      pizza: Math.max(0, INITIAL_INVENTORY.pizza - pizzasUsed - infractionPenalty),
-      sushi: Math.max(0, INITIAL_INVENTORY.sushi - sushisUsed - infractionPenalty),
-      perro_caliente: Math.max(0, INITIAL_INVENTORY.perro_caliente - perrosUsed),
-      sandwich_callejero: Math.max(0, INITIAL_INVENTORY.sandwich_callejero - sandwichesUsed),
-      arepa: Math.max(0, INITIAL_INVENTORY.arepa - arepasUsed),
-      extras: Math.max(0, INITIAL_INVENTORY.extras - extrasUsed),
-      penaltyApplied: infractionPenalty
-    };
-  };
-
-  const detailedStocks = getDetailedStocks();
-
-  // Specific helper to fetch a specific meal stock left
-  const getMealStockValue = (m: MealType) => {
-    if (m === "Hamburguesa") return detailedStocks.hamburguesa;
-    if (m === "Salchipapa") return detailedStocks.salchipapa;
-    if (m === "Pizza") return detailedStocks.pizza;
-    if (m === "Sushi") return detailedStocks.sushi;
-    if (m === "Perro Caliente") return detailedStocks.perro_caliente;
-    if (m === "Sándwich Callejero") return detailedStocks.sandwich_callejero;
-    if (m === "Arepa") return detailedStocks.arepa;
-    return 0;
-  };
-
-  // Switch meal inputs with proactive Mon-Thu lockouts vs Fri-Sun penance enforcement
+  // Register meal changes with strict logic of Lunes-Jueves vs Viernes-Domingo
   const handleSelectMeal = (weekNum: number, partner: "novio" | "novia", meal: MealType | null) => {
-    const isStarting = !state.cycle_start_date;
-    let updatedStartDate = state.cycle_start_date;
+    const isNewStart = !state.cycle_start_date;
+    let nextStartDate = state.cycle_start_date;
 
-    // Cycle starts strictly upon registering the very first item
-    if (isStarting) {
+    if (isNewStart && meal) {
       const today = new Date();
-      updatedStartDate = today.toISOString();
-      triggerToast("🚀 ¡Plan iniciado y sincronizado automáticamente hoy con su primer registro!");
+      nextStartDate = today.toISOString();
+      triggerToast("🚀 ¡Ciclo eterno iniciado con su primer cheat meal registrado!");
     }
 
     if (meal) {
-      // 1. If we are in Mon-Thu planning mode, PREVENT SELECTING locked/out of stock items
-      if (dayStatus.isPreplanning) {
-        // Evaluate blocks
-        const prevWeekInfo = state.history.find(h => h.semana === weekNum - 1);
-        const hadConflictingSalchipapa = prevWeekInfo ? (prevWeekInfo.cena_novio === "Salchipapa" || prevWeekInfo.cena_novia === "Salchipapa") : false;
-        
-        const isOutOfStock = getMealStockValue(meal) <= 0;
-        const isSalchipapaLocked = meal === "Salchipapa" && (hadConflictingSalchipapa || apiData.bloqueos_activos.salchipapa);
-
-        if (isOutOfStock) {
-          triggerToast(`⛔ BLOQUED: ¡No queda stock suficiente de ${meal} para este bloque semanal!`);
+      // Mon-Thu PLANNING checks -> Strictly blocks unpermitted selections
+      if (dayPhaseSim === "planning") {
+        if (meal === "Salchipapa" && isSalchipapaBlocked) {
+          triggerToast("⛔ NO PERMITIDO: La salchipapa está bloqueada para planificación en esta semana.");
           return;
         }
-
-        if (isSalchipapaLocked) {
-          triggerToast(`⛔ BLOQUEADO: No puedes planificar Salchipapa. Estuviste comiendo en la última semana o tienen castigo consecutivo.`);
+        if ((meal === "Hamburguesa" || meal === "Pizza") && isHeavyMealsPenalized) {
+          triggerToast("⛔ NO PERMITIDO: Comidas pesadas bloqueadas por una infracción cometida la semana pasada.");
           return;
         }
       }
     }
 
-    const updatedHistory = state.history.map((h) => {
+    // Update history states
+    const nextHistory = state.history.map((h) => {
       if (h.semana === weekNum) {
-        const nextInfo = { ...h };
-        if (partner === "novio") {
-          nextInfo.cena_novio = meal;
-        } else {
-          nextInfo.cena_novia = meal;
-        }
-        nextInfo.cena = nextInfo.cena_novio || nextInfo.cena_novia;
-
-        // Auto calculate corresponding professional healthy Castigo
-        const isDoubleLock = h.infraction_detected || false; 
-        const penalty = calculateCastigo(nextInfo.cena_novio, nextInfo.cena_novia, nextInfo.extra, isDoubleLock);
-        nextInfo.castigo_task = penalty || undefined;
-        if (!penalty) {
-          nextInfo.castigo_completed = false;
-        }
-        return nextInfo;
+        const item = { ...h };
+        if (partner === "novio") item.cena_novio = meal;
+        else item.cena_novia = meal;
+        item.cena = item.cena_novio || item.cena_novia;
+        return item;
       }
       return h;
     });
 
     setState(prev => ({
       ...prev,
-      cycle_start_date: updatedStartDate,
-      current_week: isStarting ? 1 : prev.current_week,
-      history: updatedHistory
+      cycle_start_date: nextStartDate,
+      history: nextHistory
     }));
 
     if (meal) {
-      triggerToast(`🍽️ ${partner === "novio" ? novioName : nattName} eligió ${meal} para la Semana ${weekNum}`);
+      triggerToast(`🍽️ ${partner === "novio" ? novioName : nattName} registró ${meal} en la Semana ${weekNum}`);
     } else {
       triggerToast(`🧼 Elección removida para la Semana ${weekNum}`);
     }
   };
 
-  // Switch Extra Sweet toggler
+  // Toggle Sweet treats
   const handleToggleExtra = (weekNum: number) => {
-    const isStarting = !state.cycle_start_date;
-    let updatedStartDate = state.cycle_start_date;
+    const isNewStart = !state.cycle_start_date;
+    let nextStartDate = state.cycle_start_date;
 
-    if (isStarting) {
+    if (isNewStart) {
       const today = new Date();
-      updatedStartDate = today.toISOString();
-      triggerToast("🚀 ¡Plan iniciado automáticamente hoy con su primer registro!");
+      nextStartDate = today.toISOString();
+      triggerToast("🚀 ¡Ciclo eterno iniciado hoy con su primer extra registrado!");
     }
 
-    const targetWeek = state.history.find(h => h.semana === weekNum);
-    const nextVal = targetWeek ? !targetWeek.extra : true;
+    const currentElem = state.history.find(h => h.semana === weekNum);
+    const targetState = currentElem ? !currentElem.extra : true;
 
-    // Mon-Thu lockout restrictions prevent saving extra sweet
-    if (dayStatus.isPreplanning && nextVal) {
-      if (detailedStocks.extras <= 0) {
-        triggerToast("⛔ ERROR: ¡No queda stock disponible de extras dulces para este bloque de 8 semanas!");
-        return;
-      }
-      if (apiData.bloqueos_activos.extra_helado) {
-        triggerToast("⛔ BLOQUEADO: No se permite programar extras dulces consecutivamente. ¡Recuerden moderar el azúcar!");
+    if (dayPhaseSim === "planning" && targetState === true) {
+      if (isExtraBlocked) {
+        triggerToast("⛔ NO PERMITIDO: El Dulce Extra está bloqueado para planificar consecutivamente.");
         return;
       }
     }
 
-    const updatedHistory = state.history.map((h) => {
+    const nextHistory = state.history.map((h) => {
       if (h.semana === weekNum) {
-        const nextInfo = { ...h, extra: !h.extra };
-        const penalty = calculateCastigo(nextInfo.cena_novio, nextInfo.cena_novia, nextInfo.extra);
-        nextInfo.castigo_task = penalty || undefined;
-        return nextInfo;
+        return { ...h, extra: !h.extra };
       }
       return h;
     });
 
     setState(prev => ({
       ...prev,
-      cycle_start_date: updatedStartDate,
-      history: updatedHistory
+      cycle_start_date: nextStartDate,
+      history: nextHistory
     }));
 
-    if (nextVal) {
-      triggerToast(`🍧 Extra dulce activado para la Semana ${weekNum}`);
-    } else {
-      triggerToast(`🍦 Extra dulce desmarcado para la Semana ${weekNum}`);
-    }
+    triggerToast(targetState ? `🍧 Extra dulce activado para la Semana ${weekNum}` : `🍦 Extra dulce desactivado`);
   };
 
-  // Mark casting penance completed
-  const handleTogglePenanceCompleted = (weekNum: number) => {
-    const updatedHistory = state.history.map((h) => {
-      if (h.semana === weekNum) {
-        const nextVal = !h.castigo_completed;
-        if (nextVal) {
-          triggerToast(`🏆 ¡Castigo de Semana ${weekNum} completado! Esfuerzo compensado con éxito.`);
-        }
-        return { ...h, castigo_completed: nextVal };
-      }
-      return h;
-    });
-    setState(prev => ({
-      ...prev,
-      history: updatedHistory
-    }));
-  };
-
-  // Quick action: matching meal
-  const handleDuplicarEleccion = (weekNum: number) => {
+  // Fast shortcut to clone each other's choice
+  const handleClonePartnerMeal = (weekNum: number, source: "novio" | "novia") => {
     const weekData = state.history.find(h => h.semana === weekNum);
     if (!weekData) return;
 
-    if (weekData.cena_novio && !weekData.cena_novia) {
+    if (source === "novio" && weekData.cena_novio) {
       handleSelectMeal(weekNum, "novia", weekData.cena_novio);
-    } else if (weekData.cena_novia && !weekData.cena_novio) {
+    } else if (source === "novia" && weekData.cena_novia) {
       handleSelectMeal(weekNum, "novio", weekData.cena_novia);
-    } else {
-      triggerToast(`⚠️ Uno de los dos debe elegir una comida para duplicar.`);
     }
   };
 
-  // Reset entire workflow back to day 0
-  const handleResetCycle = () => {
-    localStorage.removeItem("fitcycle_couple_state_eternal_v3");
+  // Wipe cycles completely
+  const handleWipeEverything = () => {
+    localStorage.removeItem("fitcycle_couple_state_eternal_v4");
     setState(getInitialState());
-    setShowResetConfirm(false);
-    triggerToast("🔄 El flujo ha sido reiniciado por completo. ¡Listo para comenzar un eterno viaje!");
-    setActiveTab("calendar");
+    setShowConfig(false);
+    triggerToast("🔄 Todos los registros y estadísticas han sido borrados.");
+    setActiveTab("dashboard");
   };
 
-  // Load Demonstration Simulation (Semana 5 representation)
-  const handleLoadSimulation = () => {
-    const now = new Date();
-    // Simulate started exactly 4 weeks ago
-    const simulatedStart = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1050);
-    const simulatedHistory: SemanalInfo[] = [
-      { 
-        semana: 1, 
-        cena_novio: "Sushi", 
-        cena_novia: "Sushi", 
-        cena: "Sushi", 
-        extra: false, 
-        castigo_task: "⚡ Resensibilización de Insulina: Recortar carbohidratos simples el lunes y realizar entrenamiento de piernas de altas repeticiones el miércoles.", 
-        castigo_completed: true,
-        infraction_detected: false,
-        infraction_details: ""
-      },
-      { 
-        semana: 2, 
-        cena_novio: "Hamburguesa", 
-        cena_novia: "Pizza", 
-        cena: "Hamburguesa", 
-        extra: true, 
-        castigo_task: "⚡ Resensibilización de Insulina. 🍧 [Bloqueo Dopamínico]: Evitar edulcorantes artificiales de lunes a jueves.", 
-        castigo_completed: true,
-        infraction_detected: false,
-        infraction_details: ""
-      },
-      { 
-        semana: 3, 
-        cena_novio: "Salchipapa", 
-        cena_novia: "Salchipapa", 
-        cena: "Salchipapa", 
-        extra: false, 
-        castigo_task: "🚨 Protocolo Sódico Intensivo: Cardio LISS y 4.5L de agua diarios por 3 días.", 
-        castigo_completed: false,
-        infraction_detected: false,
-        infraction_details: ""
-      },
-      { 
-        semana: 4, 
-        cena_novio: "Sándwich Callejero", 
-        cena_novia: "Hamburguesa", 
-        cena: "Sándwich Callejero", 
-        extra: true, 
-        castigo_task: "🚨 Protocolo Sódico Intensivo. [Bloqueo Dopamínico]: Evitar edulcorantes.", 
-        castigo_completed: false,
-        infraction_detected: false,
-        infraction_details: ""
-      },
-      // In Week 5 let's simulate an infraction on executing (Fri-Sun) to demonstrate penalty behavior
-      {
-        semana: 5,
-        cena_novio: "Salchipapa",
-        cena_novia: "Salchipapa",
-        cena: "Salchipapa",
-        extra: true, // Broken mutual exclusion!
-        castigo_task: "🚨 Protocolo Sódico Intensivo más [Doble Castigo Activo].",
-        castigo_completed: false,
-        infraction_detected: true,
-        infraction_details: "• Combinación prohibida de Salchipapa y Dulce Extra en el mismo fin de semana."
-      }
-    ];
-
-    // Pad with empty future weeks up to 12
-    for (let w = 6; w <= 12; w++) {
-      simulatedHistory.push({
-        semana: w,
-        cena_novio: null,
-        cena_novia: null,
-        cena: null,
-        extra: false,
-        infraction_detected: false,
-        infraction_details: ""
-      });
+  // Skip active week counter easily for custom timing verification
+  const handleFastForwardWeek = () => {
+    if (!state.cycle_start_date) {
+      triggerToast("⚠️ Registren primero para iniciar el cronómetro de fechas reales.");
+      return;
     }
-
-    setState({
-      current_week: 5,
-      cycle_start_date: simulatedStart.toISOString(),
-      history: simulatedHistory
-    });
-
-    triggerToast("✨ Simulación realista cargada con infracciones y castigo de ejemplo.");
-    setActiveTab("calendar");
+    const currentStart = new Date(state.cycle_start_date);
+    // Move start date 7 days into the past to simulated active week increment
+    const earlierStart = new Date(currentStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+    setState(prev => ({
+      ...prev,
+      cycle_start_date: earlierStart.toISOString()
+    }));
+    triggerToast("⏩ Viajaste 1 semana al futuro en el tiempo real.");
   };
 
-  // Get Suggested Food for visual feedback
+  const getMealEmoji = (m: MealType | null) => {
+    if (!m) return "🍽️";
+    if (m === "Hamburguesa") return "🍔";
+    if (m === "Salchipapa") return "🍟";
+    if (m === "Pizza") return "🍕";
+    if (m === "Sushi") return "🍣";
+    if (m === "Perro Caliente") return "🌭";
+    if (m === "Sándwich Callejero") return "🥪";
+    if (m === "Arepa") return "🫓";
+    return "🥡";
+  };
+
+  // Suggestions roadmap list for calendar decoration
   const getRoadmapForWeek = (weekNum: number) => {
-    const cyclePos = ((weekNum - 1) % 8) + 1;
+    const cyclePos = ((weekNum - 1) % 6) + 1;
     switch (cyclePos) {
-      case 1: return "🍣 Sushi (Proteína limpia) - ¡Fuerza inicial!";
-      case 2: return "🍔 Hamburguesa sola + 🍧 Permitido 1er Extra dulce";
-      case 3: return "🍟 Salchipapa (Sabor intenso) - 🔒 Prohibido dulces extras";
-      case 4: return "🍕 Pizza crujiente de queso + 🍧 Permitido Extra dulce";
-      case 5: return "🍔 Hamburguesa en combo - Control sin postre";
-      case 6: return "🥪 Sándwich Callejero cargado + 🍧 Extra dulce de premio";
-      case 7: return "🌭 Perro Caliente o Arepa tradicional - 🔒 Sin extras dulces";
-      case 8: return "🍕 Pizza / Hamburguesa festiva + 🍧 Cierre con Extra dulce";
+      case 1: return "🍣 Sugerencia: Sushi (Proteína Limpia)";
+      case 2: return "🍔 Sugerencia: Hamburguesa Sola + Dulce";
+      case 3: return "🫓 Sugerencia: Arepas Tradicionales Sincronizadas";
+      case 4: return "🍕 Sugerencia: Pizza Crujiente Con Extra Dulce";
+      case 5: return "🥪 Sugerencia: Sándwich Callejero (Control dulces)";
+      case 6: return "🌭 Sugerencia: Perro Caliente Completo";
       default: return "";
     }
   };
 
-  // Global counts for badges
-  const totalCheatsRecorded = state.history.filter(h => h.cena_novio !== null || h.cena_novia !== null).length;
-  const totalExtrasRecorded = state.history.filter(h => h.extra).length;
-  const activePenancesCount = state.history.filter(h => h.castigo_task && !h.castigo_completed).length;
-  const totalInfractionsLogged = state.history.filter(h => h.infraction_detected).length;
+  // Get active week data
+  const activeWeekInfo = state.history.find(h => h.semana === currentComputedWeek) || {
+    semana: currentComputedWeek,
+    cena_novio: null,
+    cena_novia: null,
+    cena: null,
+    extra: false
+  };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center font-sans antialiased text-slate-900 md:p-6 select-none">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center font-sans antialiased text-slate-900 md:p-6 select-none">
       
-      {/* Device frame simulated for desktop preview, expands fully on mobile */}
-      <div className="w-full max-w-md h-[100dvh] md:h-[840px] md:max-h-[95vh] md:rounded-[40px] md:border-[6px] md:border-slate-800 bg-slate-50 relative flex flex-col md:shadow-2xl overflow-hidden shadow-none rounded-none border-none">
+      {/* Visual device wrapper */}
+      <div id="app-frame" className="w-full max-w-md h-[100vh] md:h-[880px] md:max-h-[95vh] md:rounded-[40px] md:border-[8px] md:border-slate-800 bg-slate-50 relative flex flex-col md:shadow-2xl overflow-hidden shadow-none border-none">
         
-        {/* TOP COMPROMISE BAR */}
-        <header className="bg-white border-b border-slate-100 px-5 py-4 shrink-0 flex items-center justify-between z-30 shadow-xs">
+        {/* APP HEADER */}
+        <header className="bg-white border-b border-rose-100 px-5 py-4 shrink-0 flex items-center justify-between z-30 shadow-xs">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-red-500 rounded-xl flex items-center justify-center text-white shadow-xs">
-              <Heart size={16} className="fill-white" />
+            <div className="w-9 h-9 bg-rose-500 rounded-2xl flex items-center justify-center text-white shadow-md animate-pulse">
+              <Heart size={18} className="fill-white" />
             </div>
             <div>
-              <h1 className="text-sm font-black tracking-tight text-slate-900 flex items-center gap-1 font-display leading-none">
-                FitCycle <span className="text-[8px] bg-red-100 text-red-650 font-extrabold px-1.5 py-0.5 rounded">ETERNO</span>
-              </h1>
-              <p className="text-[10px] text-slate-400 mt-1 font-bold leading-none">Joss & Natt</p>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-black tracking-tight text-slate-900 font-display">
+                  FitCycle <span className="text-rose-500 text-xs font-black">ETERNO</span>
+                </span>
+                <span className="text-[8px] bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded-full border border-emerald-100">
+                  REAL-TIME
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold mt-0.5 leading-none">👦{novioName} & 👧{nattName} • En Pareja</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="bg-slate-100 rounded-lg px-2 py-1 flex items-center gap-1 border border-slate-200">
-              <Clock size={11} className="text-red-500" />
-              <span className="text-[10px] font-black text-slate-800 tracking-tight">
-                {state.cycle_start_date ? `Semana ${currentComputedWeek}` : "ESPERANDO"}
-              </span>
+            <div className="bg-slate-100 rounded-xl px-2.5 py-1.5 flex items-center gap-1 border border-slate-200">
+              <span className="text-[9.5px] font-black text-slate-700 uppercase tracking-tight">Semana {currentComputedWeek}</span>
             </div>
           </div>
         </header>
 
-        {/* TOAST PANEL */}
+        {/* FEEDBACK TOASTS */}
         {toastMessage && (
-          <div className="absolute top-18 left-4 right-4 z-50 bg-slate-900 text-white rounded-2xl p-3 shadow-lg flex items-center gap-2 border border-slate-800 animate-slide-in">
-            <Sparkles size={14} className="text-yellow-400 shrink-0" />
-            <p className="text-[11px] font-bold leading-snug">{toastMessage}</p>
+          <div className="absolute top-18 left-4 right-4 z-50 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-3 shadow-lg flex items-center gap-2 border border-slate-800 animate-slide-up text-[11px] font-bold">
+            <Sparkles size={14} className="text-rose-400 shrink-0" />
+            <p className="flex-1 leading-snug">{toastMessage}</p>
           </div>
         )}
 
-        {/* DYNAMIC CELLULAR DAY TRACKER */}
-        <div className="bg-white px-5 py-3 border-b border-slate-100 shrink-0 flex items-center justify-between gap-3 text-xs">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className={`w-2.5 h-2.5 rounded-full inline-block ${dayStatus.isPreplanning ? "bg-cyan-500" : "bg-emerald-500"}`} />
-              <span className="font-extrabold text-[11px] text-slate-700 tracking-wide uppercase">Hoy: {dayStatus.currentDayName}</span>
-              <span className={`text-[8.5px] font-black uppercase px-2 py-0.5 rounded border ${dayStatus.badgeClass}`}>
-                {dayStatus.badgeText}
-              </span>
-            </div>
-            <p className="text-[10px] text-slate-450 leading-snug font-medium">{dayStatus.description}</p>
+        {/* WORKFLOW CONTROLS STATS OVERVIEW */}
+        <div className="bg-white border-b border-slate-100 px-4 py-2 shrink-0 flex items-center justify-between text-xs font-semibold gap-3 text-slate-650">
+          <div className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${dayPhaseSim === 'planning' ? 'bg-cyan-500' : 'bg-rose-500'}`} />
+            <span className="text-[10px] font-black uppercase text-slate-500">Estado Celular:</span>
+          </div>
+
+          <div className="flex bg-slate-150 p-0.5 rounded-lg border border-slate-200">
+            <button
+              onClick={() => {
+                setDayPhaseSim("planning");
+                triggerToast("📝 Modo de Planificación (Lunes a Jueves) activado. Bloqueos aplicados estrictamente.");
+              }}
+              className={`px-2 py-1 text-[9px] font-black rounded-md transition ${
+                dayPhaseSim === "planning" 
+                  ? "bg-white text-slate-800 shadow-xs" 
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              📝 Lunes - Jueves
+            </button>
+            <button
+              onClick={() => {
+                setDayPhaseSim("execution");
+                triggerToast("🔥 Modo Consumo Real (Viernes a Domingo). Puedes saltarte las reglas pero implicará castigo automático.");
+              }}
+              className={`px-2 py-1 text-[9px] font-black rounded-md transition ${
+                dayPhaseSim === "execution" 
+                  ? "bg-rose-500 text-white shadow-xs" 
+                  : "text-slate-500 hover:text-rose-600"
+              }`}
+            >
+              🔥 Viernes - Domingo
+            </button>
           </div>
         </div>
 
-        {/* COMPREHENSIVE ALERTS BAR FOR INFRACTIONS AND PUNISHMENTS */}
-        {detailedStocks.penaltyApplied > 0 && (
-          <div className="bg-red-50 border-b border-red-100 px-5 py-2.5 shrink-0 flex items-center gap-2 text-red-950 font-semibold text-[10.5px]">
-            <AlertTriangle size={14} className="text-red-600 shrink-0" />
-            <span>
-              <strong>Penitencia de Racha:</strong> -{detailedStocks.penaltyApplied}p porción en stock de favoritos y blocks de 2-sem activos.
-            </span>
-          </div>
-        )}
+        {/* PRIMARY SCROLL CONTAINER */}
+        <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-20 scroll-smooth">
 
-        {/* PRIMARY SCROLL VIEW */}
-        <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-22 scroll-smooth">
-          
-          {/* TAB 1: CALENDAR VIEW */}
-          {activeTab === "calendar" && (
-            <div className="space-y-4 animate-fade-in text-slate-800">
-
-              {/* Waiting status for first trigger */}
-              {!state.cycle_start_date ? (
-                <div className="bg-gradient-to-br from-red-550 to-rose-600 text-white rounded-2xl p-5 shadow-sm space-y-3">
-                  <Flame size={22} className="text-white animate-bounce" />
-                  <h3 className="font-black text-xs tracking-tight uppercase">¡Esperando Primer Registro! 💕</h3>
-                  <p className="text-[11px] leading-relaxed text-red-50 font-semibold">
-                    El plan de 8 semanas se asocia automáticamente a partir de su primer cheat real registrado. ¡No tienen que configurar fechas manualmente!
-                  </p>
-                  <p className="text-[10px] bg-white/10 p-2.5 rounded-xl text-red-100 font-bold leading-normal">
-                    📌 <strong>Regla Celular:</strong> Durante Lunes a Jueves se prohibirán comidas consecutivas o sin stock. De Viernes a Domingo se permite elegir todo, pero se penalizará con menor stock de favoritos y dobles bloqueos.
+          {/* TAB 1: DASHBOARD & ETERNAL CALENDAR */}
+          {activeTab === "dashboard" && (
+            <div className="space-y-4 animate-fade-in">
+              
+              {/* COMPREHENSIVE ETERNAL STATUS BADGE */}
+              <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between gap-3">
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-400">
+                    Estatus de Racha
+                  </div>
+                  <h3 className="text-base font-black text-slate-900 leading-tight">
+                    {state.cycle_start_date ? "Flujo Permanente Activo" : "Esperando Primer Registro"}
+                  </h3>
+                  <p className="text-[10.5px] text-slate-500 font-medium leading-normal">
+                    {state.cycle_start_date 
+                      ? "Este sistema se auto-modera y expande indefinidamente. No hay fin de 8 semanas, aprendiendo eternamente de cada plato." 
+                      : "Registren su primer cheat meal de la semana y comiencen automáticamente la racha."
+                    }
                   </p>
                 </div>
-              ) : (
-                <div className="bg-white rounded-2xl p-4 border border-slate-200/60 shadow-xs text-xs space-y-2.5">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                    <span className="font-extrabold text-slate-500 uppercase tracking-wider text-[9.5px]">Estatus de Sostenibilidad</span>
-                    <span className="bg-emerald-150 text-emerald-800 font-black text-[9px] px-2 py-0.5 rounded-full uppercase">Flujo Permanente</span>
+                
+                <div className={`p-3 rounded-2xl border text-center font-black text-[11px] uppercase tracking-wide shrink-0 ${
+                  calculated.stateColor === "rojo" 
+                    ? "bg-red-50 border-red-200 text-red-700"
+                    : calculated.stateColor === "amarillo"
+                      ? "bg-amber-50 border-amber-200 text-amber-700"
+                      : "bg-cyan-50 border-cyan-200 text-cyan-700"
+                }`}>
+                  <span className="block text-[8px] font-bold text-slate-400">Estado</span>
+                  {calculated.stateTitle}
+                </div>
+              </div>
+
+              {/* AUTOMATIC SMART RECOMMENDATION BOX */}
+              <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-3xl p-5 shadow-lg border border-slate-800 space-y-3 relative overflow-hidden">
+                <div className="absolute right-0 top-0 w-32 h-32 bg-rose-500/10 rounded-full filter blur-xl" />
+                <div className="flex items-center gap-2">
+                  <Sparkles size={16} className="text-rose-400 animate-spin" />
+                  <span className="text-[10px] font-black text-rose-350 tracking-widest uppercase">
+                    Propuesta del Algoritmo de Variabilidad
+                  </span>
+                </div>
+                
+                <h4 className="font-extrabold text-sm text-yellow-350 leading-tight">
+                  {calculated.sugerencia.title}
+                </h4>
+                
+                <p className="text-xs text-slate-300 leading-relaxed font-semibold">
+                  {calculated.sugerencia.message}
+                </p>
+
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] font-extrabold text-slate-400">
+                  <span>Basado en su historial completo</span>
+                  <span className="text-rose-450 italic">Joss & Natt Sostenibles ♥</span>
+                </div>
+              </div>
+
+              {/* STATISTICS METRICS "CÓMO COMEMOS" */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-105 pb-3">
+                  <h3 className="font-black text-xs text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <TrendingUp size={14} className="text-rose-500" />
+                    Cómo Comemos (Métricas Cruzadas)
+                  </h3>
+                  <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                    stats.historicalGrade.includes("S") 
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-rose-50 text-rose-700 border-rose-200"
+                  }`}>
+                    Nota {stats.historicalGrade}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+                    <span className="text-[8px] text-slate-450 font-black uppercase block leading-none">Cenas Libres</span>
+                    <span className="text-base font-black text-slate-850 block mt-1">{stats.totalCheats}</span>
+                    <span className="text-[8px] text-slate-400 font-bold block mt-0.5">En total</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-[10.5px] font-extrabold text-slate-600">
-                    <div>📅 Fecha de Inicio: <span className="font-black text-slate-850">{new Date(state.cycle_start_date).toLocaleDateString()}</span></div>
-                    <div>🎯 Racha en Proceso: <span className="font-black text-red-600">Semana {currentComputedWeek} activo</span></div>
+                  <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+                    <span className="text-[8px] text-slate-450 font-black uppercase block leading-none">Coincidencia</span>
+                    <span className="text-base font-black text-rose-600 block mt-1">{stats.coincidenceRate}%</span>
+                    <span className="text-[8px] text-slate-400 font-bold block mt-0.5">Compartido</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+                    <span className="text-[8px] text-slate-350 font-black uppercase block leading-none">Índice Dulce</span>
+                    <span className="text-base font-black text-slate-800 block mt-1">{stats.sweetToothRate}%</span>
+                    <span className="text-[8px] text-slate-400 font-bold block mt-0.5">Helados</span>
                   </div>
                 </div>
-              )}
 
-              {/* HISTORICAL WEEKS SCROLL */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between px-1">
-                  <h3 className="font-black text-xs text-slate-400 uppercase tracking-widest">Dashboard Calendario de Comidas</h3>
-                  <span className="text-[10px] text-red-500 font-bold">Sin fin de ciclo 🔄</span>
+                {/* INDIVIDUAL PREFERENCES CHART METERS */}
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                  
+                  {/* JOSS PREFS */}
+                  <div className="space-y-2">
+                    <h4 className="text-[9.5px] font-black uppercase text-slate-500 flex items-center gap-1">
+                      👦 Top Joss
+                    </h4>
+                    {stats.jossPreferences.length === 0 ? (
+                      <span className="text-[10px] text-slate-400 font-bold italic block">Sin datos aún</span>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {stats.jossPreferences.slice(0, 3).map((pref, i) => (
+                          <div key={pref.name} className="text-[10px] font-bold">
+                            <div className="flex justify-between text-slate-600">
+                              <span>{getMealEmoji(pref.name as MealType)} {pref.name}</span>
+                              <span>{pref.count}</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-0.5">
+                              <div className="bg-slate-700 h-full rounded-full" style={{ width: `${pref.pct}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* NATT PREFS */}
+                  <div className="space-y-2">
+                    <h4 className="text-[9.5px] font-black uppercase text-slate-500 flex items-center gap-1">
+                      👧 Top Natt
+                    </h4>
+                    {stats.nattPreferences.length === 0 ? (
+                      <span className="text-[10px] text-slate-400 font-bold italic block">Sin datos aún</span>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {stats.nattPreferences.slice(0, 3).map((pref, i) => (
+                          <div key={pref.name} className="text-[10px] font-bold">
+                            <div className="flex justify-between text-slate-600">
+                              <span>{getMealEmoji(pref.name as MealType)} {pref.name}</span>
+                              <span>{pref.count}</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-0.5">
+                              <div className="bg-rose-500 h-full rounded-full" style={{ width: `${pref.pct}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              </div>
+
+              {/* INTEGRATED VIEW-ONLY ETERNAL CALENDAR */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center px-1">
+                  <h3 className="font-extrabold text-xs text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                    <Calendar size={13} />
+                    Bitácora Histórica Eternidad
+                  </h3>
+                  <span className="text-[9px] text-slate-400 font-bold">Historial de Racha</span>
                 </div>
 
                 {state.history.map((week) => {
-                  const isCur = week.semana === currentComputedWeek;
-                  const isCompleted = week.cena_novio !== null || week.cena_novia !== null;
+                  const isCurrent = week.semana === currentComputedWeek;
+                  const isRegistered = week.cena_novio !== null || week.cena_novia !== null;
                   
-                  const getMealIcon = (m: MealType | null) => {
-                    if (!m) return "🍽️";
-                    if (m === "Hamburguesa") return "🍔";
-                    if (m === "Salchipapa") return "🍟";
-                    if (m === "Pizza") return "🍕";
-                    if (m === "Sushi") return "🍣";
-                    if (m === "Perro Caliente") return "🌭";
-                    if (m === "Sándwich Callejero") return "🥪";
-                    if (m === "Arepa") return "🫓";
-                    return "🍱";
-                  };
-
                   return (
                     <div 
                       key={week.semana}
-                      className={`rounded-2xl border transition-all duration-300 relative ${
-                        isCur 
-                          ? "bg-white border-red-200 shadow-md ring-2 ring-red-100/50" 
-                          : isCompleted 
-                            ? "bg-slate-50/90 border-slate-200 opacity-90"
-                            : "bg-white border-slate-150"
+                      className={`rounded-2xl border p-3 flex flex-col gap-2.5 transition ${
+                        isCurrent 
+                          ? "bg-rose-500/5 border-rose-250 ring-2 ring-rose-200/40" 
+                          : isRegistered 
+                            ? "bg-white border-slate-200 opacity-95 shadow-2xs" 
+                            : "bg-slate-100/70 border-slate-205 border-dashed"
                       }`}
                     >
-                      {/* Card Header information */}
-                      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <span className={`w-6 h-6 rounded-full font-black text-[11px] flex items-center justify-center ${
-                            isCur 
-                              ? "bg-red-500 text-white animate-pulse" 
-                              : isCompleted 
-                                ? "bg-slate-300 text-slate-600"
-                                : "bg-slate-100 text-slate-400"
+                      {/* Top indicator row */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-5.5 h-5.5 rounded-full font-black text-[10px] flex items-center justify-center ${
+                            isCurrent 
+                              ? "bg-rose-500 text-white" 
+                              : isRegistered 
+                                ? "bg-slate-300 text-slate-700"
+                                : "bg-slate-200 text-slate-400"
                           }`}>
                             {week.semana}
                           </span>
                           <div>
-                            <span className="font-black text-slate-800 text-xs">Semana {week.semana}</span>
-                            <span className="text-[9.5px] text-slate-400 block font-semibold leading-none mt-0.5">
-                              Sugerido: {getRoadmapForWeek(week.semana)}
+                            <span className="text-xs font-black text-slate-800">Semana {week.semana}</span>
+                            <span className="text-[9px] text-slate-400 font-bold block leading-none">
+                              {getRoadmapForWeek(week.semana)}
                             </span>
                           </div>
                         </div>
 
-                        {/* Status Label tags */}
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex gap-1 items-center">
                           {week.infraction_detected && (
-                            <span className="bg-red-100 text-red-800 text-[8.5px] font-black px-1.5 py-0.5 rounded border border-red-200">
-                              🚨 PENALIZADO
+                            <span className="text-[8px] font-black bg-red-100 text-red-700 px-1.5 py-0.5 rounded border border-red-200">
+                              ⚠️ INFRACCIÓN
                             </span>
                           )}
-                          {isCur && (
-                            <span className={`text-[8.5px] font-black uppercase px-2 py-0.5 rounded border ${
-                              dayStatus.isPreplanning ? "bg-cyan-550/10 text-cyan-800 border-cyan-200" : "bg-emerald-550/10 text-emerald-800 border-emerald-200"
-                            }`}>
-                              {dayStatus.badgeText}
+                          {!week.infraction_detected && isRegistered && (
+                            <span className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                              ✓ RACHA LIMPIA
                             </span>
                           )}
-                          {!isCur && isCompleted && (
-                            <span className="text-[8.5px] font-black uppercase bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded">
-                              Registrado
+                          {isCurrent && (
+                            <span className="text-[8px] font-extrabold bg-rose-500 text-white px-2 py-0.5 rounded-full">
+                              ACTUAL
                             </span>
                           )}
                         </div>
                       </div>
 
-                      {/* Main Choices dropdown selectors */}
-                      <div className="p-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          
-                          {/* JOSS DROP */}
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold uppercase text-slate-450 tracking-wider flex items-center gap-1 leading-none">
-                              👦 Joss
-                            </label>
-                            
-                            <select
-                              value={week.cena_novio || ""}
-                              onChange={(e) => handleSelectMeal(week.semana, "novio", (e.target.value as MealType) || null)}
-                              className="w-full bg-slate-100/90 border border-slate-200 p-2.5 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-200 cursor-pointer"
-                            >
-                              <option value="">🍽️ Sin Registrar</option>
-                              <option value="Hamburguesa">🍔 Hamburguesa</option>
-                              <option value="Salchipapa">🍟 Salchipapa</option>
-                              <option value="Pizza">🍕 Pizza</option>
-                              <option value="Sushi">🍣 Sushi</option>
-                              <option value="Perro Caliente">🌭 Perro Caliente</option>
-                              <option value="Sándwich Callejero">🥪 Sándwich Callejero</option>
-                              <option value="Arepa">🫓 Arepa</option>
-                            </select>
-
-                            <div className="text-center py-1 rounded bg-slate-100/40 border border-slate-200/50 text-[10px] font-black text-slate-600">
-                              {getMealIcon(week.cena_novio)} {week.cena_novio || "Vacío"}
+                      {/* Display registered meals side-by-side cleanly without select dropdown controls */}
+                      {isRegistered ? (
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="bg-slate-50 border border-slate-150 rounded-xl p-2 flex items-center justify-between text-slate-700">
+                            <div>
+                              <span className="text-[8.5px] font-black text-slate-400 uppercase block">Joss</span>
+                              <span className="font-black text-slate-850 truncate max-w-[80px] inline-block">
+                                {getMealEmoji(week.cena_novio)} {week.cena_novio || "Vacío"}
+                              </span>
                             </div>
                           </div>
 
-                          {/* NATT DROP */}
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold uppercase text-slate-450 tracking-wider flex items-center gap-1 leading-none">
-                              👧 Natt
-                            </label>
-                            
-                            <select
-                              value={week.cena_novia || ""}
-                              onChange={(e) => handleSelectMeal(week.semana, "novia", (e.target.value as MealType) || null)}
-                              className="w-full bg-slate-100/90 border border-slate-200 p-2.5 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-200 cursor-pointer"
-                            >
-                              <option value="">🍽️ Sin Registrar</option>
-                              <option value="Hamburguesa">🍔 Hamburguesa</option>
-                              <option value="Salchipapa">🍟 Salchipapa</option>
-                              <option value="Pizza">🍕 Pizza</option>
-                              <option value="Sushi">🍣 Sushi</option>
-                              <option value="Perro Caliente">🌭 Perro Caliente</option>
-                              <option value="Sándwich Callejero">🥪 Sándwich Callejero</option>
-                              <option value="Arepa">🫓 Arepa</option>
-                            </select>
-
-                            <div className="text-center py-1 rounded bg-slate-100/40 border border-slate-200/50 text-[10px] font-black text-slate-600">
-                              {getMealIcon(week.cena_novia)} {week.cena_novia || "Vacío"}
+                          <div className="bg-slate-50 border border-slate-150 rounded-xl p-2 flex items-center justify-between text-slate-700">
+                            <div>
+                              <span className="text-[8.5px] font-black text-rose-400 uppercase block font-display">Natt</span>
+                              <span className="font-black text-slate-850 truncate max-w-[80px] inline-block">
+                                {getMealEmoji(week.cena_novia)} {week.cena_novia || "Vacío"}
+                              </span>
                             </div>
                           </div>
 
+                          <div className="col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[9.5px] text-slate-500">
+                            <span className="font-bold">Postre Dulce adicional:</span>
+                            <span className={`font-black uppercase tracking-wider ${week.extra ? "text-rose-600 font-extrabold" : "text-slate-400"}`}>
+                              {week.extra ? "🍨 Activo" : "❌ No consumido"}
+                            </span>
+                          </div>
                         </div>
-
-                        {/* Extra controls row */}
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-4">
-                          
-                          {/* Extra sweet button */}
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleExtra(week.semana)}
-                              className={`p-1.5 px-3 rounded-xl border text-[11px] font-black flex items-center gap-1 cursor-pointer transition ${
-                                week.extra 
-                                  ? "bg-rose-50 border-rose-200 text-rose-700 font-extrabold" 
-                                  : "bg-slate-100 border-slate-205/80 text-slate-400"
-                              }`}
-                            >
-                              🍧 {week.extra ? "Extra Dulce Activo" : "Sin Extra dulce"}
-                            </button>
-                          </div>
-
-                          {/* Equalizer choice */}
-                          {((week.cena_novio && !week.cena_novia) || (week.cena_novia && !week.cena_novio)) && (
-                            <button
-                              type="button"
-                              onClick={() => handleDuplicarEleccion(week.semana)}
-                              className="text-[10.5px] text-red-650 font-black flex items-center gap-1 hover:underline cursor-pointer"
-                            >
-                              💞 Comer lo Mismo
-                            </button>
-                          )}
+                      ) : (
+                        <div className="text-center py-2 text-[10px] text-slate-400 font-bold italic">
+                          Sin registrar • Esperando a su tiempo real
                         </div>
+                      )}
 
-                        {/* Infraction detailed warning flag block (only displays if they transgressed blockades in executing Fri-Sun) */}
-                        {week.infraction_detected && (
-                          <div className="bg-red-50 border border-red-200 p-3 rounded-xl space-y-1.5 mt-2 animate-fade-in text-red-950 font-semibold text-[10.5px]">
-                            <h5 className="font-extrabold text-[10px] text-red-800 tracking-wider uppercase flex items-center gap-1">
-                              🚨 INFRACCIÓN ADVERTIDA EN FIN DE SEMANA
-                            </h5>
-                            <p className="font-medium text-[10px]">
-                              {week.infraction_details}
-                            </p>
-                            <p className="text-[9px] text-red-700 leading-tight italic">
-                              ⚠️ Sanción aplicada en los stocks siguientes de este bloque de 8 semanas, desactivando la consecutividad de salchipapas temporalmente.
-                            </p>
+                      {/* Display warning description directly inside calendar if infractions happened */}
+                      {week.infraction_detected && week.infraction_details && (
+                        <div className="bg-red-50/70 border border-red-100 p-2.5 rounded-xl text-[9.5px] text-red-900 font-bold leading-normal">
+                          <div className="flex items-start gap-1">
+                            <AlertTriangle size={11} className="text-red-500 shrink-0 mt-0.5" />
+                            <span>{week.infraction_details}</span>
                           </div>
-                        )}
-
-                        {/* Professional Castigo Healthy metabolic task */}
-                        {week.castigo_task && (
-                          <div className="bg-amber-50/75 border border-amber-200 p-3 rounded-xl space-y-2 mt-2">
-                            <h5 className="font-extrabold text-[10px] text-amber-800 tracking-wider uppercase flex items-center gap-1">
-                              ⚡ Tarea de Compensación Saludable
-                            </h5>
-                            <p className="text-[10.5px] leading-relaxed text-amber-950 font-medium">
-                              {week.castigo_task}
-                            </p>
-                            <div className="flex items-center justify-between pt-1 border-t border-amber-200/50 text-[10px]">
-                              <span className="text-slate-500 font-bold">¿Compensaron el daño en pareja?</span>
-                              <button
-                                type="button"
-                                onClick={() => handleTogglePenanceCompleted(week.semana)}
-                                className={`font-black px-2.5 py-1 rounded-lg transition shrink-0 ${
-                                  week.castigo_completed 
-                                    ? "bg-emerald-600 text-white" 
-                                    : "bg-white hover:bg-amber-100 text-amber-900 border border-amber-300"
-                                }`}
-                              >
-                                {week.castigo_completed ? "✔ Hecho" : "Pendiente"}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                      </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -757,352 +580,324 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 2: PORTIONS STOCK COUNTERS */}
-          {activeTab === "inventory" && (
+          {/* TAB 2: SELECT MEAL FOR ACTIVE WEEK ONLY */}
+          {activeTab === "planning" && (
             <div className="space-y-4 animate-fade-in text-slate-800">
               
-              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs">
-                <h3 className="font-black text-xs text-slate-900 uppercase tracking-wider mb-1">
-                  Inventario por Bloque de 8 Semanas
-                </h3>
-                <p className="text-[10.5px] text-slate-500 leading-normal mb-5 font-semibold">
-                  Cada bloque de 8 semanas tiene un pool independiente. Si cometen infracciones de fin de semana (Fri-Sun), se restará un -0.5 de porciones a sus comidas favoritas (Hamburguesa, Pizza, Sushi) de inmediato.
-                </p>
-
-                <div className="space-y-4 font-bold text-xs">
-                  
-                  {/* Hamburguesas */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800">🍔 Hamburguesas (Joss & Natt)</span>
-                      <span className="text-slate-500">{detailedStocks.hamburguesa.toFixed(1)} libres / Máx 2.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${(detailedStocks.hamburguesa / 2) * 100}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Salchipapa */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800">🍟 Salchipapas</span>
-                      <span className="text-slate-500">{detailedStocks.salchipapa.toFixed(1)} libres / Máx 1.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full" style={{ width: `${(detailedStocks.salchipapa / 1) * 100}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Pizza */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800">🍕 Pizzas</span>
-                      <span className="text-slate-500">{detailedStocks.pizza.toFixed(1)} libres / Máx 2.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${(detailedStocks.pizza / 2) * 100}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Sushi */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800">🍣 Sushi</span>
-                      <span className="text-slate-500">{detailedStocks.sushi.toFixed(1)} libres / Máx 1.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-sky-500 h-full rounded-full" style={{ width: `${(detailedStocks.sushi / 1) * 100}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Other street food list */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800">🌭 Perros Calientes</span>
-                      <span className="text-slate-500">{detailedStocks.perro_caliente.toFixed(1)} libres / Máx 1.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-yellow-500 h-full rounded-full" style={{ width: `${(detailedStocks.perro_caliente / 1) * 100}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800">🥪 Sándwich Callejero</span>
-                      <span className="text-slate-500">{detailedStocks.sandwich_callejero.toFixed(1)} libres / Máx 1.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-yellow-500 h-full rounded-full" style={{ width: `${(detailedStocks.sandwich_callejero / 1) * 100}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800">🫓 Arepas</span>
-                      <span className="text-slate-500">{detailedStocks.arepa.toFixed(1)} libres / Máx 1.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-yellow-500 h-full rounded-full" style={{ width: `${(detailedStocks.arepa / 1) * 100}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Extras dulces */}
-                  <div className="space-y-1 border-t border-slate-100 pt-3">
-                    <div className="flex justify-between">
-                      <span className="text-slate-800 font-extrabold text-rose-700">🍧 Extras Dulces (Postres / Helados)</span>
-                      <span className="text-rose-900 font-black">{detailedStocks.extras.toFixed(1)} libres / Máx 4.0</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-rose-500 h-full rounded-full" style={{ width: `${(detailedStocks.extras / 4) * 100}%` }} />
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* STATS CONSOLIDATED */}
-              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs space-y-3">
-                <h3 className="font-black text-xs text-slate-900 uppercase tracking-wide">
-                  Historial Consolidado (Toda la Vida)
-                </h3>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-slate-50 border border-slate-100 p-2.5 rounded-xl">
-                    <span className="text-[9px] text-slate-400 font-extrabold uppercase block">Cenas Libres</span>
-                    <span className="text-lg font-black text-slate-800 block mt-1">{(totalCheatsRecorded * 2).toFixed(0)}</span>
-                  </div>
-                  <div className="bg-slate-50 border border-slate-100 p-2.5 rounded-xl">
-                    <span className="text-[9px] text-slate-400 font-extrabold uppercase block">Extras dulces</span>
-                    <span className="text-lg font-black text-slate-800 block mt-1">{totalExtrasRecorded}</span>
-                  </div>
-                  <div className="bg-slate-50 border border-slate-100 p-2.5 rounded-xl">
-                    <span className="text-[9px] text-slate-400 font-extrabold uppercase block text-red-650">Infracciones</span>
-                    <span className="text-lg font-black text-red-650 block mt-1">{totalInfractionsLogged}</span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 3: CASTIGOS COMPENSATION TABS */}
-          {activeTab === "penance" && (
-            <div className="space-y-4 animate-fade-in text-slate-800">
-              
-              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs">
-                <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
-                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600">
-                    <Zap size={15} />
-                  </div>
+              {/* CURRENT WEEK BIG PANEL */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4 relative">
+                
+                <div className="pb-3 border-b border-slate-105 flex items-center justify-between">
                   <div>
-                    <h3 className="font-black text-xs text-slate-900 uppercase tracking-widest leading-none">
-                      Compensación Saludable Activa
+                    <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-widest">Registrando Comida de la Semana</span>
+                    <h3 className="text-xl font-black text-slate-900 leading-none mt-1">
+                      Semana {currentComputedWeek}
                     </h3>
-                    <p className="text-[9px] text-slate-400 font-bold mt-1">Ciencia y protocolo para revertir deslices en pareja</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[9px] bg-red-105 text-red-650 font-black px-2 py-0.5 rounded-full uppercase border border-red-200">
+                      Entrada Exclusiva
+                    </span>
                   </div>
                 </div>
 
-                <p className="text-[10.5px] text-slate-500 leading-normal mt-4 bg-slate-50 p-3 rounded-xl border border-slate-205/50 font-semibold">
-                  🌿 <strong>Compensación Científica de Sodio e Insulina:</strong> Cuando consumimos cheat meals pesados en fin de semana, hidratarse al máximo y realizar cardio LISS en ayunas el lunes y piernas el miércoles vacía las reservas de glucógeno y normaliza el balance sódico.
-                </p>
-
-                {/* PENANCE RECORD LIST */}
-                <div className="space-y-3.5 mt-5">
-                  <h4 className="text-[10px] font-black text-slate-405 uppercase tracking-widest">Compromisos de Reparación:</h4>
+                {/* SHOW ME WHICH RULES ARE ACTIVE IMMEDIATELY WITH CLEAR BLOCK SYMBOLS */}
+                <div className="bg-slate-50 border border-slate-150 rounded-2xl p-4 space-y-2.5">
+                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                    Reglas metabólicas activas esta semana:
+                  </h4>
                   
-                  {state.history.filter(h => h.castigo_task).length === 0 ? (
-                    <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                      <Award size={26} className="text-red-400 mx-auto mb-2" />
-                      <p className="text-[11px] text-slate-450 font-black">¡Felicidades! Racha limpia perfecta y sin castigos por el momento.</p>
+                  <div className="space-y-2 text-[11px] font-extrabold text-slate-700">
+                    
+                    {/* Salchipapa Lock logic */}
+                    <div className="flex items-center justify-between">
+                      <span>🍟 Salchipapas Crujientes:</span>
+                      <span className={`px-2 py-0.5 rounded-lg text-[9.5px] font-black uppercase ${
+                        isSalchipapaBlocked 
+                          ? "bg-red-50 text-red-700 border border-red-150" 
+                          : "bg-emerald-50 text-emerald-700 border border-emerald-150"
+                      }`}>
+                        {isSalchipapaBlocked ? "🔒 BLOQUEADAS (Desliz / Consiguiente)" : "✔ PERMITIDO"}
+                      </span>
+                    </div>
+
+                    {/* Extra sweets Lock logic */}
+                    <div className="flex items-center justify-between">
+                      <span>🍧 Extras dulces (Helado / Postre):</span>
+                      <span className={`px-2 py-0.5 rounded-lg text-[9.5px] font-black uppercase ${
+                        isExtraBlocked 
+                          ? "bg-red-50 text-red-700 border border-red-150" 
+                          : "bg-emerald-50 text-emerald-700 border border-emerald-150"
+                      }`}>
+                        {isExtraBlocked ? "🔒 BLOQUEADOS (Consecutividad)" : "✔ PERMITIDO"}
+                      </span>
+                    </div>
+
+                    {/* Heavy Meals Restriction Lock logic */}
+                    <div className="flex items-center justify-between">
+                      <span>🍔 & 🍕 Hamburguesa / Pizza:</span>
+                      <span className={`px-2 py-0.5 rounded-lg text-[9.5px] font-black uppercase ${
+                        isHeavyMealsPenalized 
+                          ? "bg-red-50 text-red-700 border border-red-150" 
+                          : "bg-emerald-50 text-emerald-700 border border-emerald-150"
+                      }`}>
+                        {isHeavyMealsPenalized ? "🔑 RESTRINGIDAS (Castigo por desliz)" : "✔ PERMITIDO"}
+                      </span>
+                    </div>
+
+                  </div>
+
+                  {dayPhaseSim === 'planning' ? (
+                    <div className="text-[9.5px] text-cyan-700 font-extrabold leading-normal bg-cyan-50/70 p-2.5 rounded-xl border border-cyan-100 flex gap-1.5 items-start mt-1">
+                      <Info size={12} className="shrink-0 mt-0.5" />
+                      <span>Estás en modo planificación. El sistema evitará que elijas las opciones bloqueadas o en castigo para ayudarte a controlar la racha.</span>
                     </div>
                   ) : (
-                    state.history.filter(h => h.castigo_task).map((week) => (
-                      <div 
-                        key={week.semana}
-                        className={`p-4 rounded-xl border transition ${
-                          week.castigo_completed 
-                            ? "bg-emerald-50/50 border-emerald-200 opacity-80" 
-                            : "bg-amber-50/45 border-amber-200"
-                        }`}
-                      >
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="font-black text-slate-700 text-xs">Semana {week.semana}</span>
-                          <span className={`text-[8.5px] font-black uppercase px-2 py-0.5 rounded ${
-                            week.castigo_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {week.castigo_completed ? "✔ Completado" : "Pendiente"}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-800 leading-normal mb-3 font-semibold">
-                          {week.castigo_task}
-                        </p>
-                        
-                        <button
-                          type="button"
-                          onClick={() => handleTogglePenanceCompleted(week.semana)}
-                          className="w-full py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-black text-center flex items-center justify-center gap-1.5 transition cursor-pointer"
-                        >
-                          <Check size={12} className={week.castigo_completed ? "text-emerald-600" : "text-slate-400"} />
-                          <span>{week.castigo_completed ? "Volver a Pendiente" : "Marcar como Completado"}</span>
-                        </button>
-                      </div>
-                    ))
+                    <div className="text-[9.5px] text-rose-700 font-extrabold leading-normal bg-rose-50/70 p-2.5 rounded-xl border border-rose-100 flex gap-1.5 items-start mt-1">
+                      <Info size={12} className="shrink-0 mt-0.5" />
+                      <span>Estás en modo consumo real de fin de semana. Puedes registrar opciones bloqueadas pero implicará una multa inmediata y un bloqueo doble extendido en la siguiente semana.</span>
+                    </div>
                   )}
                 </div>
-              </div>
 
-            </div>
-          )}
+                {/* SELECTOR CONTROLS */}
+                <div className="space-y-4 pt-2">
+                  
+                  {/* JOSS CONTROLLER */}
+                  <div className="space-y-2 bg-slate-50/50 rounded-2xl p-4 border border-slate-150">
+                    <div className="flex justify-between items-center bg-transparent">
+                      <label className="text-xs font-black uppercase tracking-wider text-slate-650 flex items-center gap-1.5">
+                        👦 Elección de {novioName}
+                      </label>
+                      <span className="text-[10px] text-slate-405 font-bold">Comida Cheat</span>
+                    </div>
 
-          {/* TAB 4: ADJUSTMENTS SETTINGS (MINIMAL, RETAINING ONLY RESTART AND SIMULATE AS DESIRED) */}
-          {activeTab === "settings" && (
-            <div className="space-y-4 animate-fade-in text-slate-800">
-              
-              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs space-y-4">
-                <div className="pb-3 border-b border-slate-100">
-                  <h3 className="font-black text-xs text-slate-900 uppercase tracking-wider">
-                    Ajustes de Sostenibilidad
-                  </h3>
-                  <p className="text-[10px] text-slate-450 font-bold">Gestión simple y transparente del flujo eterno</p>
-                </div>
+                    {/* Button grid of options */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa"] as MealType[]).map((meal) => {
+                        const isChosen = activeWeekInfo.cena_novio === meal;
+                        // Determine if option is logically locked
+                        const isLockedOption = (dayPhaseSim === "planning") && (
+                          (meal === "Salchipapa" && isSalchipapaBlocked) ||
+                          ((meal === "Hamburguesa" || meal === "Pizza") && isHeavyMealsPenalized)
+                        );
 
-                <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5 space-y-1.5 text-xs text-slate-705">
-                  <p className="font-black">👦 Perfil Novio: <span className="text-slate-900 font-extrabold">Joss</span></p>
-                  <p className="font-black">👧 Perfil Novia: <span className="text-slate-900 font-extrabold">Natt</span></p>
-                  <p className="font-bold text-[9.5px] text-slate-400 pt-1">
-                    💖 Ajustes limpios sin chat bots IA o telemetría artificial.
-                  </p>
-                </div>
+                        return (
+                          <button
+                            key={meal}
+                            type="button"
+                            onClick={() => handleSelectMeal(currentComputedWeek, "novio", isChosen ? null : meal)}
+                            disabled={isLockedOption}
+                            className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                              isChosen 
+                                ? "bg-slate-900 border-slate-900 text-white font-black" 
+                                : isLockedOption
+                                  ? "bg-slate-105 border-slate-200 text-slate-350 line-through cursor-not-allowed"
+                                  : "bg-white border-slate-205 hover:bg-slate-100/60 text-slate-700 font-bold"
+                            }`}
+                          >
+                            <span className="text-lg leading-none">{getMealEmoji(meal)}</span>
+                            <span className="text-[9px] truncate max-w-full leading-tight font-black">{meal}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                {/* Simulated and debugging actions */}
-                <div className="space-y-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleLoadSimulation}
-                    className="w-full py-3 bg-red-50 hover:bg-red-100/60 text-red-700 border border-red-250/20 rounded-2xl text-xs font-black transition cursor-pointer flex items-center justify-center"
-                  >
-                    🧪 Cargar Demostración Simulada (Semana 5)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowResetConfirm(true)}
-                    className="w-full py-3 bg-red-650 hover:bg-red-750 text-white rounded-2xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    <RotateCcw size={12} /> Reiniciar Todo el Ciclo Eterno
-                  </button>
-                </div>
-              </div>
-
-              {/* Confirmation Reset Drawer */}
-              {showResetConfirm && (
-                <div className="bg-white rounded-2xl p-5 border-2 border-red-500 shadow-xl space-y-4 text-xs animate-fade-in">
-                  <div className="flex items-center gap-2 text-red-600 font-black uppercase">
-                    <AlertTriangle size={18} />
-                    <h4>¿Restablecer absolutamente todo?</h4>
+                    {activeWeekInfo.cena_novio && (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectMeal(currentComputedWeek, "novio", null)}
+                        className="text-[10px] text-slate-500 font-bold hover:underline"
+                      >
+                        Limpiar selección de Joss
+                      </button>
+                    )}
                   </div>
-                  <p className="text-slate-600 leading-normal font-semibold">
-                    Esta acción vaciará de forma irreversible el historial digital, los extras dulces planificados y las compensaciones activas para Joss y Natt.
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
+
+                  {/* NATT CONTROLLER */}
+                  <div className="space-y-2 bg-slate-50/50 rounded-2xl p-4 border border-slate-150">
+                    <div className="flex justify-between items-center bg-transparent">
+                      <label className="text-xs font-black uppercase tracking-wider text-slate-650 flex items-center gap-1.5">
+                        👧 Elección de {nattName}
+                      </label>
+                      <span className="text-[10px] text-slate-405 font-bold">Comida Cheat</span>
+                    </div>
+
+                    {/* Button grid of options */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa"] as MealType[]).map((meal) => {
+                        const isChosen = activeWeekInfo.cena_novia === meal;
+                        // Determine if option is logically locked
+                        const isLockedOption = (dayPhaseSim === "planning") && (
+                          (meal === "Salchipapa" && isSalchipapaBlocked) ||
+                          ((meal === "Hamburguesa" || meal === "Pizza") && isHeavyMealsPenalized)
+                        );
+
+                        return (
+                          <button
+                            key={meal}
+                            type="button"
+                            onClick={() => handleSelectMeal(currentComputedWeek, "novia", isChosen ? null : meal)}
+                            disabled={isLockedOption}
+                            className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                              isChosen 
+                                ? "bg-rose-600 border-rose-600 text-white font-black" 
+                                : isLockedOption
+                                  ? "bg-slate-105 border-slate-200 text-slate-350 line-through cursor-not-allowed"
+                                  : "bg-white border-slate-205 hover:bg-slate-100/60 text-slate-700 font-bold"
+                            }`}
+                          >
+                            <span className="text-lg leading-none">{getMealEmoji(meal)}</span>
+                            <span className="text-[9px] truncate max-w-full leading-tight font-black">{meal}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {activeWeekInfo.cena_novia && (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectMeal(currentComputedWeek, "novia", null)}
+                        className="text-[10px] text-rose-500 font-bold hover:underline"
+                      >
+                        Limpiar selección de Natt
+                      </button>
+                    )}
+                  </div>
+
+                  {/* SWEETS SWITCH OR CLONING HELPER */}
+                  <div className="flex flex-col gap-3 pt-2">
+                    
+                    {/* Synchronize choice button */}
+                    <div className="flex gap-2">
+                      {activeWeekInfo.cena_novio && !activeWeekInfo.cena_novia && (
+                        <button
+                          type="button"
+                          onClick={() => handleClonePartnerMeal(currentComputedWeek, "novio")}
+                          className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[10.5px] font-black border border-slate-200 flex items-center justify-center gap-1 cursor-pointer transition"
+                        >
+                          💞 ¡Replicar plato de Joss para Natt ({activeWeekInfo.cena_novio})!
+                        </button>
+                      )}
+
+                      {activeWeekInfo.cena_novia && !activeWeekInfo.cena_novio && (
+                        <button
+                          type="button"
+                          onClick={() => handleClonePartnerMeal(currentComputedWeek, "novia")}
+                          className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[10.5px] font-black border border-slate-200 flex items-center justify-center gap-1 cursor-pointer transition"
+                        >
+                          💞 ¡Replicar plato de Natt para Joss ({activeWeekInfo.cena_novia})!
+                        </button>
+                      )}
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => setShowResetConfirm(false)}
-                      className="py-2 bg-slate-100 rounded-lg font-black text-slate-750 border border-slate-200"
+                      onClick={() => handleToggleExtra(currentComputedWeek)}
+                      className={`w-full p-4 rounded-2xl border text-xs font-black transition cursor-pointer flex items-center justify-between ${
+                        activeWeekInfo.extra 
+                          ? "bg-rose-50 border-rose-300 text-rose-700" 
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
                     >
-                      No, cancelar
+                      <span className="flex items-center gap-2">
+                        <span>🍨</span>
+                        <div className="text-left font-semibold">
+                          <span className="font-extrabold text-[11px] block text-rose-800">Helado / Postre Adicional (Sweets Extra)</span>
+                          <span className="text-[9.5px] text-slate-400 font-bold block">Adiciona placer dopamínico semanal</span>
+                        </div>
+                      </span>
+                      <span className={`text-[9.5px] font-black uppercase px-2.5 py-1 rounded-xl border ${
+                        activeWeekInfo.extra 
+                          ? "bg-rose-600 text-white border-rose-600" 
+                          : "bg-slate-100 text-slate-400 border-slate-200"
+                      }`}>
+                        {activeWeekInfo.extra ? "CON POSTRE" : "SIN POSTRE"}
+                      </span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={handleResetCycle}
-                      className="py-2 bg-red-650 hover:bg-red-750 text-white font-black rounded-lg"
-                    >
-                      Sí, borrar datos
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              {/* Install PWA Prompt */}
-              {pwaPromptShow && (
-                <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-2.5 relative">
-                  <button 
-                    onClick={() => setPwaPromptShow(false)} 
-                    className="absolute top-3 right-3 text-slate-400 hover:text-white font-black text-[10px]"
-                  >
-                    ✕
-                  </button>
-                  <h4 className="font-black text-[11px] uppercase text-yellow-500 tracking-wider">📲 Tenerlo como App Directa:</h4>
-                  <p className="text-[10.5px] text-slate-300 leading-relaxed font-semibold">
-                    Abre este enlace en Safari o Chrome desde tu celular. Pulsa en <strong>"Compartir"</strong> y selecciona <strong>"Añadir a pantalla de inicio"</strong>. ¡Funcionará de forma transparente e independiente!
-                  </p>
+                  </div>
+
                 </div>
-              )}
+              </div>
 
             </div>
           )}
 
         </main>
 
-        {/* BOTTOM NAV TABS */}
-        <nav className="bg-white border-t border-slate-100 px-3 py-2.5 shrink-0 flex items-center justify-around z-30 shadow-md">
-          
+        {/* METABOLIC RESET AND SIMULATING UTILITIES BAR (PREVIEW ONLY) */}
+        {!state.cycle_start_date ? null : (
+          <div className="absolute bottom-16 left-0 right-0 bg-white/95 border-t border-slate-100 px-5 py-2 flex items-center justify-between text-[10px] font-extrabold text-slate-400 z-20">
+            <span>Día 0 Sincronizado</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleFastForwardWeek}
+                className="text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                ⏩ Forzar 1 Semana Real
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowConfig(true)}
+                className="text-red-500 hover:text-red-850 flex items-center gap-1 cursor-pointer"
+              >
+                ⚙ Reiniciar Racha
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* CONFIG RESET MODAL */}
+        {showConfig && (
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-6 z-50">
+            <div className="bg-white rounded-3xl p-5 w-full max-w-xs border border-slate-150 space-y-4 shadow-xl">
+              <h4 className="font-black text-sm text-slate-900">¿Deseas reiniciar la racha?</h4>
+              <p className="text-[11px] text-slate-500 leading-relaxed font-semibold">
+                Esta acción borrará de manera inmediata e irreversible todos los cheats recordados, deslices y estadísticas de toda la vida.
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setShowConfig(false)}
+                  className="w-full py-2 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleWipeEverything}
+                  className="w-full py-2 bg-red-650 text-white font-black rounded-xl hover:bg-red-750 cursor-pointer"
+                >
+                  Confirmar Borrado
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BOTTOM NAVIGATION TAB BAR */}
+        <nav className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-100 h-16 flex items-center justify-around z-40 px-6">
           <button
-            type="button"
-            onClick={() => setActiveTab("calendar")}
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none ${
-              activeTab === "calendar" 
-                ? "text-red-600 font-black bg-red-50" 
-                : "text-slate-400 hover:text-slate-600"
-            }`}
+            onClick={() => setActiveTab("dashboard")}
+            className={`flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === "dashboard" ? "text-rose-650 font-black scale-105" : "text-slate-400 font-semibold"
+            } cursor-pointer`}
           >
-            <Calendar size={18} />
-            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Calendario</span>
+            <TrendingUp size={18} className={activeTab === "dashboard" ? "text-rose-500" : "text-slate-400"} />
+            <span className="text-[9.5px]">Dashboard & Bitácora</span>
           </button>
 
           <button
-            type="button"
-            onClick={() => setActiveTab("inventory")}
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none ${
-              activeTab === "inventory" 
-                ? "text-red-600 font-black bg-red-50" 
-                : "text-slate-400 hover:text-slate-600"
-            }`}
+            onClick={() => setActiveTab("planning")}
+            className={`flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === "planning" ? "text-rose-650 font-black scale-105" : "text-slate-400 font-semibold"
+            } cursor-pointer`}
           >
-            <Sliders size={18} />
-            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Porciones</span>
+            <Sliders size={18} className={activeTab === "planning" ? "text-rose-500" : "text-slate-450"} />
+            <span className="text-[9.5px] font-display">Registrar / Bloqueos</span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("penance")}
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none relative ${
-              activeTab === "penance" 
-                ? "text-red-600 font-black bg-red-50" 
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            <Zap size={18} />
-            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Castigos</span>
-            {activePenancesCount > 0 && (
-              <span className="absolute top-1 right-2 bg-amber-500 text-white font-black text-[8px] px-1.5 py-0.5 rounded-full leading-none shrink-0 text-center">
-                {activePenancesCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("settings")}
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none ${
-              activeTab === "settings" 
-                ? "text-red-600 font-black bg-red-50" 
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            <Settings size={18} />
-            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Ajustes</span>
-          </button>
-
         </nav>
 
       </div>

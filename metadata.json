@@ -1,6 +1,6 @@
 {
   "name": "FitCycle",
-  "description": "Rastreador de comidas libres (cheat meals) estilo MeetYou de 8 semanas para parejas, que bloquea consecutivos y mantiene el inventario del ciclo.",
+  "description": "Rastreador eterno de comidas libres (cheat meals) para parejas, con bloqueos automáticos basados en el historial de consumo y sugerencias inteligentes de variabilidad.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
