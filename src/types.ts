@@ -3,7 +3,7 @@
  * Modernized for dynamic history-based blocking, analytics, and suggestions.
  */
 
-export type MealType = "Hamburguesa" | "Salchipapa" | "Pizza" | "Sushi" | "Perro Caliente" | "Sándwich Callejero" | "Arepa";
+export type MealType = "Hamburguesa" | "Salchipapa" | "Pizza" | "Sushi" | "Perro Caliente" | "Sándwich Callejero" | "Arepa" | "Pollo Broaster";
 
 export interface SemanalInfo {
   semana: number;

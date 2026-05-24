@@ -140,7 +140,7 @@ export function processFitCycle(state: FitCycleState): FitCycleCalculatedData {
   };
 
   // List of permitted options based on active week locks
-  const opciones_permitidas: MealType[] = ["Sushi", "Sándwich Callejero", "Perro Caliente", "Arepa"];
+  const opciones_permitidas: MealType[] = ["Sushi", "Sándwich Callejero", "Perro Caliente", "Arepa", "Pollo Broaster"];
   if (!bloqueos_activos.salchipapa) {
     opciones_permitidas.push("Salchipapa");
   }
@@ -158,7 +158,8 @@ export function processFitCycle(state: FitCycleState): FitCycleCalculatedData {
     Sushi: 0,
     "Perro Caliente": 0,
     "Sándwich Callejero": 0,
-    Arepa: 0
+    Arepa: 0,
+    "Pollo Broaster": 0
   };
   
   let totalRecentCheats = 0;
@@ -304,7 +305,8 @@ export function calculateCoupleStats(history: SemanalInfo[], activeWeek: number)
     Sushi: 0,
     "Perro Caliente": 0,
     "Sándwich Callejero": 0,
-    Arepa: 0
+    Arepa: 0,
+    "Pollo Broaster": 0
   };
   const nattCounts: Record<MealType, number> = {
     Hamburguesa: 0,
@@ -313,7 +315,8 @@ export function calculateCoupleStats(history: SemanalInfo[], activeWeek: number)
     Sushi: 0,
     "Perro Caliente": 0,
     "Sándwich Callejero": 0,
-    Arepa: 0
+    Arepa: 0,
+    "Pollo Broaster": 0
   };
   let sweetWeeks = 0;
   let infractionsCount = 0;

@@ -257,6 +257,7 @@ export default function App() {
     if (m === "Perro Caliente") return "🌭";
     if (m === "Sándwich Callejero") return "🥪";
     if (m === "Arepa") return "🫓";
+    if (m === "Pollo Broaster") return "🍗";
     return "🥡";
   };
 
@@ -731,7 +732,7 @@ export default function App() {
 
                     {/* Button grid of options */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa"] as MealType[]).map((meal) => {
+                      {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa", "Pollo Broaster"] as MealType[]).map((meal) => {
                         const isChosen = activeWeekInfo.cena_novio === meal;
                         // Determine if option is logically locked
                         const isLockedOption = ((dayPhaseSim === "planning") && (
@@ -789,7 +790,7 @@ export default function App() {
 
                     {/* Button grid of options */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa"] as MealType[]).map((meal) => {
+                      {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa", "Pollo Broaster"] as MealType[]).map((meal) => {
                         const isChosen = activeWeekInfo.cena_novia === meal;
                         // Determine if option is logically locked
                         const isLockedOption = ((dayPhaseSim === "planning") && (
