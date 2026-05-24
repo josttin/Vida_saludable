@@ -12,6 +12,8 @@ export interface SemanalInfo {
   extra: boolean;
   castigo_task?: string; // Auto-generated healthy penalty task
   castigo_completed?: boolean; // Whether they completed the healthy corrective penance
+  infraction_detected?: boolean; // If they ate a forbidden or out-of-stock meal in execution mode
+  infraction_details?: string;   // Explaining why they are penalized
 }
 
 export interface FitCycleState {
