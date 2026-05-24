@@ -149,17 +149,9 @@ export function processFitCycle(state: FitCycleState): FitCycleCalculatedData {
     opciones_permitidas.push("Pizza");
   }
 
-  // Calculate stats to generate recommendation
-  const allMealsProcessed: MealType[] = [];
-  evaluatedHistory.forEach((h) => {
-    if (h.semana < activeWeek) {
-      if (h.cena_novio) allMealsProcessed.push(h.cena_novio);
-      if (h.cena_novia) allMealsProcessed.push(h.cena_novia);
-    }
-  });
-
-  // Analyze frequencies
-  const mealCounts: Record<MealType, number> = {
+  // Calculate stats to generate recommendation of the last 12 weeks (3 months)
+  const recentWeeks = evaluatedHistory.filter(h => h.semana < activeWeek && h.semana >= activeWeek - 12);
+  const weightedCounts: Record<MealType, number> = {
     Hamburguesa: 0,
     Salchipapa: 0,
     Pizza: 0,
@@ -168,9 +160,44 @@ export function processFitCycle(state: FitCycleState): FitCycleCalculatedData {
     "Sándwich Callejero": 0,
     Arepa: 0
   };
-  allMealsProcessed.forEach(m => {
-    if (mealCounts[m] !== undefined) mealCounts[m]++;
+  
+  let totalRecentCheats = 0;
+  recentWeeks.forEach(h => {
+    let weight = 0.5; // Low weight for 9-12 weeks ago (approx 3 months)
+    const weeksAgo = activeWeek - h.semana;
+    if (weeksAgo <= 4) {
+      weight = 3.0; // High weight for the most recent 4 weeks
+    } else if (weeksAgo <= 8) {
+      weight = 1.5; // Medium weight for 5-8 weeks ago
+    }
+    
+    if (h.cena_novio && weightedCounts[h.cena_novio] !== undefined) {
+      weightedCounts[h.cena_novio] += weight;
+      totalRecentCheats++;
+    }
+    if (h.cena_novia && weightedCounts[h.cena_novia] !== undefined) {
+      weightedCounts[h.cena_novia] += weight;
+      totalRecentCheats++;
+    }
   });
+
+  // Find most weighted and least weighted meals in recent 12-week trends
+  const sortedRecentTrends = Object.entries(weightedCounts)
+    .map(([name, weight]) => ({ name: name as MealType, weight: Math.round(weight * 10) / 10 }))
+    .sort((a, b) => b.weight - a.weight);
+
+  const favoriteRecent = sortedRecentTrends[0].weight > 0 ? sortedRecentTrends[0].name : null;
+  const leastEatenRecent = sortedRecentTrends[sortedRecentTrends.length - 1].name;
+
+  // Let's also look for sushi gap
+  let lastTimeSushi = 999;
+  for (let u = activeWeek - 1; u >= 1; u--) {
+    const wk = evaluatedHistory.find(h => h.semana === u);
+    if (wk && (wk.cena_novio === "Sushi" || wk.cena_novia === "Sushi")) {
+      lastTimeSushi = activeWeek - u;
+      break;
+    }
+  }
 
   // Calculate a smart suggestion
   let sugerencia: SmartSugestion = {
@@ -182,46 +209,55 @@ export function processFitCycle(state: FitCycleState): FitCycleCalculatedData {
   if (activeWeek > 1 && previousWeekInfo) {
     const pNovio = previousWeekInfo.cena_novio;
     const pNovia = previousWeekInfo.cena_novia;
-
-    // Sushi check
-    let lastTimeSushi = 999;
-    for (let u = activeWeek - 1; u >= 1; u--) {
-      const wk = evaluatedHistory.find(h => h.semana === u);
-      if (wk && (wk.cena_novio === "Sushi" || wk.cena_novia === "Sushi")) {
-        lastTimeSushi = activeWeek - u;
-        break;
-      }
-    }
+    const pShared = previousWeekInfo.share_mode;
 
     if (hasPenaltyLockActive) {
       sugerencia = {
         title: "🛡️ Menú Compensador Activo",
         type: "clean_balance",
-        message: "Hubo un desliz en el fin de semana anterior. Las opciones pesadas están penalizadas: Sugerimos comer Sushi o Arepas esta semana. Mantengan el organismo limpio y completen la semana sin dulce extra."
+        message: "Hubo un desliz en el fin de semana anterior. Las opciones pesadas están bloqueadas o penalizadas. Sugerimos comer Sushi o Arepas esta semana. Mantengan el organismo limpio y completen la semana sin dulce extra."
       };
-    } else if (lastTimeSushi > 3) {
+    } else if (lastTimeSushi > 4) {
+      // Prioritize Sushi if forgotten (good balance)
       sugerencia = {
         title: "🍣 ¡Hora de Sushi Saludable!",
         type: "clean_balance",
-        message: "Llevan más de 3 semanas sin registrar Sushi. Es el cheat meal óptimo: bajo en grasas saturadas, alto en proteínas y omega-3. ¡Ideal para consentirse sin saturar el hígado!"
+        message: `Llevan ${lastTimeSushi} semanas sin registrar Sushi en el último trimestre. Es el cheat meal óptimo: bajo en grasas saturadas. ¡Es hora de unificar gustos e ir por sushi hoy!`
       };
-    } else if (pNovio === pNovia && pNovio !== null) {
+    } else if (favoriteRecent && weightedCounts[favoriteRecent] >= 8.0 && (pNovio === favoriteRecent || pNovia === favoriteRecent)) {
+      // Overconsumption warning of the favorite recent food
       sugerencia = {
-        title: "🔄 Rotación de Menú (Variabilidad)",
+        title: `🔄 ¡Basta de ${favoriteRecent}! (Rotación Obligatoria)`,
         type: "change_meal",
-        message: `La semana pasada comieron lo mismo (${pNovio}). Para evitar adaptaciones estomacales y mantener entretenido el paladar, hoy sugerimos cambiar a una opción diferente. ¿Qué tal unas Arepas o Sándwich Callejero?`
+        message: `Las estadísticas de los últimos 3 meses indican que están abusando de la ${favoriteRecent} (peso de tendencia alto de ${weightedCounts[favoriteRecent]}). Les sugerimos cambiar hoy a algo diferente como ${leastEatenRecent === favoriteRecent ? "Arepa o Sushi" : leastEatenRecent} para dar variedad.`
       };
     } else if (pNovio !== pNovia && pNovio !== null && pNovia !== null) {
+      // Did they eat different meals last week? Let's check share mode
+      if (pShared === "cada_uno") {
+        sugerencia = {
+          title: "💞 ¡Sugerimos Mitad y Mitad!",
+          type: "same_meal",
+          message: `La semana pasada comieron platos separados (${pNovio} para Joss y ${pNovia} para Natt) sin compartir. Hoy, si quieren pedir diferente, ¡les sugerimos comer a Mitad y Mitad para disfrutar la variedad gastronómica juntos!`
+        };
+      } else {
+        sugerencia = {
+          title: "Sincronía Sostenible",
+          type: "same_meal",
+          message: `La semana pasada compartieron degustando mitad y mitad de sus platos. Para esta semana sugerimos ponerse de acuerdo y pedir lo mismo: unas ricas Pizzas o la opción menos comida recientemente (${leastEatenRecent}).`
+        };
+      }
+    } else if (pNovio === pNovia && pNovio !== null) {
+      // Ate same thing last week
       sugerencia = {
-        title: "💞 Sincronía de Sabor",
-        type: "same_meal",
-        message: `La semana pasada comieron platos diferentes (${pNovio} y ${pNovia}). Hoy sugerimos unificarse y pedir lo mismo (por ejemplo, una Pizza crujiente) para facilitar la logística y compartir la experiencia.`
+        title: "🔄 Variemos el Paladar",
+        type: "change_meal",
+        message: `La semana pasada comieron lo mismo (${pNovio}). Según su historial de 3 meses, su comida menos consumida es ${leastEatenRecent}. ¡Cada uno podría elegir un plato distinto y compartirlo mitad y mitad, o probar por completo ${leastEatenRecent}!`
       };
     } else {
       sugerencia = {
-        title: "🧩 Elección Libre Equilibrada",
+        title: "🧩 Menú Libre y Variado",
         type: "same_meal",
-        message: "¡Vía libre sin penalizaciones! Aprovechen esta semana para saborear una Pizza juntos si no la han comido recientemente, o un Perro Caliente para variar."
+        message: `¡Vía libre total en la racha! Según sus tendencias recientes, coman ${leastEatenRecent} para mantener baja la repetición acumulada.`
       };
     }
   }

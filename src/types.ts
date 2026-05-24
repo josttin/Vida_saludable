@@ -11,6 +11,7 @@ export interface SemanalInfo {
   cena_novia: MealType | null;
   cena: MealType | null; // Consolidated main choice
   extra: boolean;
+  share_mode?: "mitad_mitad" | "cada_uno" | null; // Half and half or each their own
   infraction_detected?: boolean; // True if they broke consecutive/combination rules
   infraction_details?: string;   // Explained reason
 }

@@ -86,6 +86,21 @@ export default function App() {
     const isNewStart = !state.cycle_start_date;
     let nextStartDate = state.cycle_start_date;
 
+    // Execution weekend locking: once registered in execution mode (Viernes, Sábado, Domingo), it cannot be modified until Monday
+    if (dayPhaseSim === "execution" && nextStartDate) {
+      const activeInfo = state.history.find(h => h.semana === weekNum);
+      if (activeInfo) {
+        if (partner === "novio" && activeInfo.cena_novio !== null) {
+          triggerToast("🔒 No puedes modificar tu comida de Joss en fin de semana una vez registrada. Espera a Lunes-Jueves.");
+          return;
+        }
+        if (partner === "novia" && activeInfo.cena_novia !== null) {
+          triggerToast("🔒 No puedes modificar la comida de Natt en fin de semana una vez registrada. Espera a Lunes-Jueves.");
+          return;
+        }
+      }
+    }
+
     if (isNewStart && meal) {
       const today = new Date();
       nextStartDate = today.toISOString();
@@ -113,6 +128,13 @@ export default function App() {
         if (partner === "novio") item.cena_novio = meal;
         else item.cena_novia = meal;
         item.cena = item.cena_novio || item.cena_novia;
+        
+        // Auto default share_mode if options are different, otherwise nullify if same
+        if (item.cena_novio && item.cena_novia && item.cena_novio !== item.cena_novia) {
+          if (!item.share_mode) item.share_mode = "mitad_mitad";
+        } else {
+          item.share_mode = null;
+        }
         return item;
       }
       return h;
@@ -129,6 +151,27 @@ export default function App() {
     } else {
       triggerToast(`🧼 Elección removida para la Semana ${weekNum}`);
     }
+  };
+
+  // Select share mode helper
+  const handleSelectShareMode = (weekNum: number, mode: "mitad_mitad" | "cada_uno") => {
+    const nextHistory = state.history.map((h) => {
+      if (h.semana === weekNum) {
+        return { ...h, share_mode: mode };
+      }
+      return h;
+    });
+
+    setState(prev => ({
+      ...prev,
+      history: nextHistory
+    }));
+
+    triggerToast(
+      mode === "mitad_mitad"
+        ? "🤝 Registrado: ¡Degustación a Mitad y Mitad! Compartiendo platos."
+        : "🍽️ Registrado: Cada uno comerá su propio plato por su cuenta."
+    );
   };
 
   // Toggle Sweet treats
@@ -550,6 +593,15 @@ export default function App() {
                             </div>
                           </div>
 
+                          {week.cena_novio !== week.cena_novia && week.cena_novio && week.cena_novia && (
+                            <div className="col-span-2 bg-rose-50/50 border border-rose-100 rounded-xl px-2.5 py-1.5 flex items-center justify-between text-[10px] text-rose-900 leading-none">
+                              <span className="font-extrabold flex items-center gap-1">🤝 Tipo de Consumo:</span>
+                              <span className="font-black uppercase tracking-wider bg-rose-100 text-rose-800 px-2 py-0.5 rounded-lg text-[8.5px]">
+                                {week.share_mode === "mitad_mitad" ? "Mitad y Mitad" : "Cada uno lo suyo"}
+                              </span>
+                            </div>
+                          )}
+
                           <div className="col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[9.5px] text-slate-500">
                             <span className="font-bold">Postre Dulce adicional:</span>
                             <span className={`font-black uppercase tracking-wider ${week.extra ? "text-rose-600 font-extrabold" : "text-slate-400"}`}>
@@ -664,10 +716,15 @@ export default function App() {
                 <div className="space-y-4 pt-2">
                   
                   {/* JOSS CONTROLLER */}
-                  <div className="space-y-2 bg-slate-50/50 rounded-2xl p-4 border border-slate-150">
+                  <div className="space-y-2 bg-slate-50/50 rounded-2xl p-4 border border-slate-150 relative overflow-hidden">
+                    {dayPhaseSim === "execution" && activeWeekInfo.cena_novio !== null && (
+                      <div className="absolute top-1.5 right-2 flex items-center gap-1 text-[9px] bg-slate-900 text-white font-black px-2 py-0.5 rounded-md shadow-xs">
+                        <span>🔒 Consumido</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center bg-transparent">
                       <label className="text-xs font-black uppercase tracking-wider text-slate-650 flex items-center gap-1.5">
-                        👦 Elección de {novioName}
+                        👦 Elección de {novioName} {dayPhaseSim === "execution" && activeWeekInfo.cena_novio !== null && "(Bloqueado)"}
                       </label>
                       <span className="text-[10px] text-slate-405 font-bold">Comida Cheat</span>
                     </div>
@@ -677,10 +734,10 @@ export default function App() {
                       {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa"] as MealType[]).map((meal) => {
                         const isChosen = activeWeekInfo.cena_novio === meal;
                         // Determine if option is logically locked
-                        const isLockedOption = (dayPhaseSim === "planning") && (
+                        const isLockedOption = ((dayPhaseSim === "planning") && (
                           (meal === "Salchipapa" && isSalchipapaBlocked) ||
                           ((meal === "Hamburguesa" || meal === "Pizza") && isHeavyMealsPenalized)
-                        );
+                        )) || (dayPhaseSim === "execution" && activeWeekInfo.cena_novio !== null);
 
                         return (
                           <button
@@ -692,18 +749,20 @@ export default function App() {
                               isChosen 
                                 ? "bg-slate-900 border-slate-900 text-white font-black" 
                                 : isLockedOption
-                                  ? "bg-slate-105 border-slate-200 text-slate-350 line-through cursor-not-allowed"
+                                  ? "bg-slate-105 border-slate-205 text-slate-350 line-through cursor-not-allowed"
                                   : "bg-white border-slate-205 hover:bg-slate-100/60 text-slate-700 font-bold"
                             }`}
                           >
-                            <span className="text-lg leading-none">{getMealEmoji(meal)}</span>
+                            <span className="text-lg leading-none">
+                              {isChosen && dayPhaseSim === "execution" ? "🔒" : getMealEmoji(meal)}
+                            </span>
                             <span className="text-[9px] truncate max-w-full leading-tight font-black">{meal}</span>
                           </button>
                         );
                       })}
                     </div>
 
-                    {activeWeekInfo.cena_novio && (
+                    {activeWeekInfo.cena_novio && dayPhaseSim !== "execution" && (
                       <button
                         type="button"
                         onClick={() => handleSelectMeal(currentComputedWeek, "novio", null)}
@@ -715,10 +774,15 @@ export default function App() {
                   </div>
 
                   {/* NATT CONTROLLER */}
-                  <div className="space-y-2 bg-slate-50/50 rounded-2xl p-4 border border-slate-150">
+                  <div className="space-y-2 bg-slate-50/50 rounded-2xl p-4 border border-slate-150 relative overflow-hidden">
+                    {dayPhaseSim === "execution" && activeWeekInfo.cena_novia !== null && (
+                      <div className="absolute top-1.5 right-2 flex items-center gap-1 text-[9px] bg-rose-600 text-white font-black px-2 py-0.5 rounded-md shadow-xs">
+                        <span>🔒 Consumido</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center bg-transparent">
                       <label className="text-xs font-black uppercase tracking-wider text-slate-650 flex items-center gap-1.5">
-                        👧 Elección de {nattName}
+                        👧 Elección de {nattName} {dayPhaseSim === "execution" && activeWeekInfo.cena_novia !== null && "(Bloqueada)"}
                       </label>
                       <span className="text-[10px] text-slate-405 font-bold">Comida Cheat</span>
                     </div>
@@ -728,10 +792,10 @@ export default function App() {
                       {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Perro Caliente", "Sándwich Callejero", "Arepa"] as MealType[]).map((meal) => {
                         const isChosen = activeWeekInfo.cena_novia === meal;
                         // Determine if option is logically locked
-                        const isLockedOption = (dayPhaseSim === "planning") && (
+                        const isLockedOption = ((dayPhaseSim === "planning") && (
                           (meal === "Salchipapa" && isSalchipapaBlocked) ||
                           ((meal === "Hamburguesa" || meal === "Pizza") && isHeavyMealsPenalized)
-                        );
+                        )) || (dayPhaseSim === "execution" && activeWeekInfo.cena_novia !== null);
 
                         return (
                           <button
@@ -743,18 +807,20 @@ export default function App() {
                               isChosen 
                                 ? "bg-rose-600 border-rose-600 text-white font-black" 
                                 : isLockedOption
-                                  ? "bg-slate-105 border-slate-200 text-slate-350 line-through cursor-not-allowed"
+                                  ? "bg-slate-105 border-slate-205 text-slate-350 line-through cursor-not-allowed"
                                   : "bg-white border-slate-205 hover:bg-slate-100/60 text-slate-700 font-bold"
                             }`}
                           >
-                            <span className="text-lg leading-none">{getMealEmoji(meal)}</span>
+                            <span className="text-lg leading-none">
+                              {isChosen && dayPhaseSim === "execution" ? "🔒" : getMealEmoji(meal)}
+                            </span>
                             <span className="text-[9px] truncate max-w-full leading-tight font-black">{meal}</span>
                           </button>
                         );
                       })}
                     </div>
 
-                    {activeWeekInfo.cena_novia && (
+                    {activeWeekInfo.cena_novia && dayPhaseSim !== "execution" && (
                       <button
                         type="button"
                         onClick={() => handleSelectMeal(currentComputedWeek, "novia", null)}
@@ -790,6 +856,49 @@ export default function App() {
                         </button>
                       )}
                     </div>
+
+                    {/* COMPARTIDO O CADA UNO LO SUYO TOGGLE */}
+                    {activeWeekInfo.cena_novio && activeWeekInfo.cena_novia && activeWeekInfo.cena_novio !== activeWeekInfo.cena_novia && (
+                      <div className="bg-gradient-to-r from-pink-50 via-rose-50/30 to-rose-50 border border-rose-200 rounded-2xl p-4 space-y-3 animate-fade-in">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base text-rose-500">🤝</span>
+                          <div>
+                            <h4 className="text-xs font-black text-rose-950 uppercase tracking-widest">Platos Diferentes Detectados</h4>
+                            <p className="text-[10.5px] text-rose-700 font-bold leading-tight">¿Cómo compartirán esta deliciosa experiencia?</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectShareMode(currentComputedWeek, "mitad_mitad")}
+                            className={`py-3 px-2 rounded-xl border font-black transition text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                              activeWeekInfo.share_mode === "mitad_mitad"
+                                ? "bg-rose-500 border-rose-500 text-white shadow-sm"
+                                : "bg-white border-rose-200 text-rose-950 hover:bg-rose-100/40"
+                            }`}
+                          >
+                            <span className="text-sm">🤝</span>
+                            <span className="text-[10px] font-black">Mitad y Mitad</span>
+                            <span className="text-[8.5px] font-bold opacity-85">(Degustan ambos)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSelectShareMode(currentComputedWeek, "cada_uno")}
+                            className={`py-3 px-2 rounded-xl border font-black transition text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                              activeWeekInfo.share_mode === "cada_uno"
+                                ? "bg-slate-800 border-slate-800 text-white shadow-sm"
+                                : "bg-white border-slate-250 text-slate-705 hover:bg-slate-100/40"
+                            }`}
+                          >
+                            <span className="text-sm">🍽️</span>
+                            <span className="text-[10px] font-black">Cada Uno lo Suyo</span>
+                            <span className="text-[8.5px] font-bold opacity-85">(Platos individuales)</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <button
                       type="button"
