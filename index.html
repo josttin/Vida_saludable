@@ -10,6 +10,15 @@
     <!-- Updated PWA tags to resolve browser warning -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="FitCycle" />
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js")
+            .then(reg => console.log("SW registrado con éxito", reg))
+            .catch(err => console.warn("Error de SW:", err));
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -168,8 +168,12 @@ Analiza el mensaje y devuelve el estado FitCycleState completamente actualizado.
         matchedMeal = "Pizza";
       } else if (text.includes("sushi")) {
         matchedMeal = "Sushi";
-      } else if (text.includes("otra") || text.includes("otro") || text.includes("distinto")) {
-        matchedMeal = "Otra";
+      } else if (text.includes("perro")) {
+        matchedMeal = "Perro Caliente";
+      } else if (text.includes("sandwich") || text.includes("sándwich")) {
+        matchedMeal = "Sándwich Callejero";
+      } else if (text.includes("arepa")) {
+        matchedMeal = "Arepa";
       }
 
       if (matchedMeal) {

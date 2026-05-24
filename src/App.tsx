@@ -1,1491 +1,1039 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { FitCycleState, FitCycleAPIResponse, MealType, SemanalInfo } from "./types";
-import { getInitialState } from "./fitCycleEngine";
+import { getInitialState, calculateCastigo, INITIAL_INVENTORY, calculateFitCycle } from "./fitCycleEngine";
 import { 
+  Heart, 
+  Calendar, 
+  CheckCircle, 
+  Settings, 
+  Bell, 
+  Check, 
+  RotateCcw, 
+  Zap, 
+  Info, 
+  Sliders, 
   Sparkles, 
-  Trash2, 
-  RefreshCw, 
-  Utensils, 
-  Smile, 
-  AlertTriangle, 
-  Send,
-  Heart,
-  Calendar,
-  CheckCircle,
-  Eye,
-  Settings,
-  Bell,
-  User,
-  Check,
-  ChevronRight,
-  Info,
-  Layers,
-  Sparkle,
-  Home,
-  Database,
-  MessageSquare,
-  Clock,
-  BookOpen,
-  TrendingUp,
-  Sliders,
-  BellRing
+  Award, 
+  Flame, 
+  UserCheck, 
+  Coffee, 
+  Clock, 
+  History, 
+  ShieldAlert, 
+  Frown, 
+  CheckSquare,
+  AlertTriangle,
+  Sparkle
 } from "lucide-react";
 
-interface ChatMessage {
-  id: string;
-  sender: "user" | "ai";
-  text: string;
-  time: string;
-}
-
 export default function App() {
-  // Customizable profiles for the couple
-  const [novioName, setNovioName] = useState("Joss");
-  const [noviaName, setNoviaName] = useState("Nati");
-  const [showConfig, setShowConfig] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "inventory" | "map" | "ai" | "settings">("dashboard");
+  // Names are strictly hardcoded to Joss and Natt
+  const novioName = "Joss";
+  const nattName = "Natt";
 
-  // Personalized Notification customization states
-  const [enableWeekendReminder, setEnableWeekendReminder] = useState(true);
-  const [weekendReminderDay, setWeekendReminderDay] = useState("Sábado");
-  const [weekendReminderTime, setWeekendReminderTime] = useState("20:30");
-
-  const [enableStockWarning, setEnableStockWarning] = useState(true);
-  const [stockWarningThreshold, setStockWarningThreshold] = useState(1.5);
-  const [notifiedLowStocks, setNotifiedLowStocks] = useState<string[]>([]);
-
-  const [enableMotivationalAlert, setEnableMotivationalAlert] = useState(true);
-  const [motivationalDay, setMotivationalDay] = useState("Lunes");
-  const [motivationalTime, setMotivationalTime] = useState("08:00");
-
-  // App logical state
-  const [state, setState] = useState<FitCycleState>(getInitialState());
-  const [apiResponse, setApiResponse] = useState<FitCycleAPIResponse | null>(null);
-  
-  // UI states
-  const [inputText, setInputText] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errorStatus, setErrorStatus] = useState<string | null>(null);
-  
-  // Active Simulated Notifications (Push notifications channel)
-  const [notifications, setNotifications] = useState([
-    { id: 1, text: "📲 ¡Recordatorio!: Les quedan salchipapas y pizzas en el inventario del ciclo de 8 semanas.", time: "Hace un momento", type: "info" },
-    { id: 2, text: "🔒 Alerta de consecutividad: No repitan Salchipapa ni Extras de forma consecutiva.", time: "Hace 5 minutos", type: "block" },
-    { id: 3, text: "💧 Compromiso mutuo: No negociar los 3 litros de agua los días de cheat meal.", time: "Hace 1 hora", type: "success" }
-  ]);
-  const [showNotificationList, setShowNotificationList] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-
-  // Chat conversation log memory
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      sender: "ai",
-      text: "¡Hola! Soy su asistente inteligente de FitCycle. Pueden registrar comidas libre por voz o texto (ej: 'Nati comió sushi y Joss pizza' o 'Hamburguesas juntas en la semana 4'). ¿En qué les puedo ayudar hoy?",
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
-
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-
-  // Auto scroll chat to bottom when message log changes
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [chatMessages, activeTab]);
-
-  // Suggested quick chat command pills
-  const quickChatPills = [
-    { label: "🤝 Hamburguesas juntos", text: "Registra que ambos comimos hamburguesa juntos este fin de semana" },
-    { label: "🍟 Joss Salchipapa, Nati Sushi", text: "Joss comió salchipapa y Nati sushi" },
-    { label: "🍕 Nati Pizza, Joss Sushi", text: "Nati comió pizza y Joss comió sushi" },
-    { label: "🍧 Añadir postre extra", text: "Poner extra dulce para el postre de este fin de semana" },
-    { label: "🧹 Limpiar esta semana", text: "Borrar el registro de la semana actual" }
-  ];
-
-  // Helper function to push temporary toasts (Simulating live push notifications)
-  const triggerPushNotification = (message: string, type: "info" | "block" | "success") => {
-    setToastMessage(message);
-    const newId = Date.now();
-    setNotifications(prev => [
-      { id: newId, text: message, time: "Justo ahora", type },
-      ...prev.slice(0, 15) // Keep last 15 notifications for simplicity
-    ]);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 4500);
-  };
-
-  // Fetch / Calculate state representation
-  const syncStateWithServer = async (currentState: FitCycleState) => {
-    setLoading(true);
-    setErrorStatus(null);
-    try {
-      const response = await fetch("/api/fitcycle/calculate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: currentState })
-      });
-      if (!response.ok) {
-        throw new Error("Error recalculando datos con el motor");
+  // App logical state with LocalStorage persistence support so data is never lost
+  const [state, setState] = useState<FitCycleState>(() => {
+    const saved = localStorage.getItem("fitcycle_couple_state_v2");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Ensure standard structure is correct
+        if (parsed.history && parsed.history.length === 8) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error("Error reading cached state", e);
       }
-      const data: FitCycleAPIResponse = await response.json();
-      setApiResponse(data);
-    } catch (err: any) {
-      console.error(err);
-      setErrorStatus("Error sincronizando con el servidor. Se cargaron cálculos estimados.");
-    } finally {
-      setLoading(false);
     }
-  };
+    return getInitialState();
+  });
 
+  const [activeTab, setActiveTab] = useState<"calendar" | "inventory" | "penance" | "settings">("calendar");
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showNotificationList, setShowNotificationList] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  
+  // Custom states for the Date backdating helper in Settings
+  const [backdateDays, setBackdateDays] = useState("0");
+  const [pwaPromptShow, setPwaPromptShow] = useState(true);
+
+  // Persistence triggers
   useEffect(() => {
-    syncStateWithServer(state);
+    localStorage.setItem("fitcycle_couple_state_v2", JSON.stringify(state));
   }, [state]);
 
-  // Automatic Low Stock Detection Alert inside the personalized notifications engine
-  useEffect(() => {
-    if (!apiResponse || !enableStockWarning) return;
+  // Toast dynamic notification helper
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
 
-    const { inventario } = apiResponse;
-    const targets = [
-      { key: "healthy_group", label: "grupo compartido saludable (Hamburguesa/Pizza/Sushi)", qty: inventario.hamburguesa },
-      { key: "salchipapa", label: "Salchipapas 🍟", qty: inventario.salchipapa },
-      { key: "otras", label: "Otras comidas saludables 🍱", qty: inventario.otra_comida },
-      { key: "extras", label: "Extras Dulces 🍨", qty: inventario.extras }
-    ];
+  // Get dynamic cellular day of week status
+  // if registered Mon-Thu -> Weekends programming. if Fri-Sun -> Eating executing
+  const getDayStatus = () => {
+    const d = new Date();
+    const day = d.getDay(); // 0 is Sunday, 1-4 is Mon-Thu, 5-6 is Fri-Sat
+    const isPreplanning = day >= 1 && day <= 4;
+    const dayNames = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+    const currentDayName = dayNames[day];
 
-    targets.forEach(t => {
-      if (t.qty <= stockWarningThreshold && t.qty > 0) {
-        if (!notifiedLowStocks.includes(t.key)) {
-          triggerPushNotification(
-            `🚨 ¡Stock Crítico!: Quedan solo ${t.qty} porciones del ${t.label} en el ciclo. ¡Planifiquen con cuidado!`,
-            "block"
-          );
-          setNotifiedLowStocks(prev => [...prev, t.key]);
-        }
-      } else if (t.qty > stockWarningThreshold) {
-        if (notifiedLowStocks.includes(t.key)) {
-          setNotifiedLowStocks(prev => prev.filter(k => k !== t.key));
-        }
-      }
-    });
-  }, [apiResponse, enableStockWarning, stockWarningThreshold, notifiedLowStocks]);
-
-  // Handle natural language inputs via the backend API with Gemini AI
-  const handleSendMessage = async (customMessage?: string) => {
-    const textToSend = customMessage || inputText;
-    if (!textToSend.trim()) return;
-
-    // Add user message to log
-    const userMsgId = Date.now().toString();
-    const newUserMsg: ChatMessage = {
-      id: userMsgId,
-      sender: "user",
-      text: textToSend,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return {
+      isPreplanning,
+      currentDayName,
+      badgeText: isPreplanning ? "📝 Programación" : "🔥 Ejecución Real",
+      description: isPreplanning 
+        ? "Estás planificando por adelantado las comidas del fin de semana de forma inteligente."
+        : "¡Buen provecho! Registrando el cheat meal consumido real de este fin de semana."
     };
-    setChatMessages(prev => [...prev, newUserMsg]);
-    if (!customMessage) setInputText("");
-
-    setLoading(true);
-    setErrorStatus(null);
-    try {
-      const response = await fetch("/api/fitcycle/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: textToSend, state })
-      });
-      if (!response.ok) {
-        throw new Error("Error en el procesamiento del lenguaje");
-      }
-
-      const resJson = await response.json();
-      if (resJson.state) {
-        setState(resJson.state);
-        if (resJson.data) {
-          setApiResponse(resJson.data);
-        }
-        triggerPushNotification(`📲 Registrado vía IA: "${textToSend.substring(0, 30)}..."`, "success");
-
-        // Format conversational reply based on response or simple fallback
-        const replyText = resJson.fallback
-          ? `¡Claro! He procesado tu comando de forma directa local: "${textToSend}". He actualizado el calendario de planificación de inmediato.`
-          : `He interpretado tu mensaje con IA y ajustado el cronograma. Las porciones han sido descontadas correspondientemente y los semáforos se encuentran activos.`;
-
-        const newAiMsg: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          sender: "ai",
-          text: replyText,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-        setChatMessages(prev => [...prev, newAiMsg]);
-      }
-    } catch (err: any) {
-      console.error(err);
-      setErrorStatus("Error procesando comando de texto. Intenta de nuevo.");
-
-      const newAiMsg: ChatMessage = {
-        id: (Date.now() + 2).toString(),
-        sender: "ai",
-        text: `⚠️ No logré sincronizar la petición con la IA. Puedes realizar tus selecciones tocando los botones interactivos del Dashboard para un control más seguro.`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setChatMessages(prev => [...prev, newAiMsg]);
-    } finally {
-      setLoading(false);
-    }
   };
 
-  // Helper to determine if a specific meal is blocked for a given user
-  const getMealBlockStatus = (userKey: "novio" | "novia", meal: MealType) => {
-    const currentWeekData = state.history.find(h => h.semana === state.current_week);
-    if (!currentWeekData) return { blocked: false, reason: "" };
+  const dayStatus = getDayStatus();
 
-    // 1. Same-week Extra vs Salchipapa mutual exclusion
-    if (meal === "Salchipapa" && currentWeekData.extra) {
-      return { blocked: true, reason: "Bloqueado por Extra dulce (Helado) activo hoy hoy." };
+  // Automatic calculation of week based on cellular Date
+  const calculateComputedWeek = () => {
+    if (!state.cycle_start_date) {
+      return 1;
     }
-
-    // 2. Mitad y Mitad heavy-fat restrictions
-    const otherKey = userKey === "novio" ? "novia" : "novio";
-    const otherMeal = otherKey === "novio" ? currentWeekData.cena_novio : currentWeekData.cena_novia;
-
-    if (otherMeal) {
-      if (meal === "Salchipapa" && (otherMeal === "Pizza" || otherMeal === "Hamburguesa")) {
-        return { blocked: true, reason: `Bloqueado: Combinar Salchipapa + ${otherMeal} junta mucha grasa saturada. ¡Coman Mitad y Mitad!` };
-      }
-      if ((meal === "Pizza" || meal === "Hamburguesa") && otherMeal === "Salchipapa") {
-        return { blocked: true, reason: `Bloqueado: Combinar con Salchipapa junta mucha grasa saturada. ¡Comen Mitad y Mitad!` };
-      }
-    }
-
-    // 3. Consecutivity lockout for Salchipapa from week W-1
-    const previousWeekData = state.history.find(h => h.semana === state.current_week - 1);
-    const hadSalchipapaLastWeek = previousWeekData ? (previousWeekData.cena_novio === "Salchipapa" || previousWeekData.cena_novia === "Salchipapa" || previousWeekData.cena === "Salchipapa") : false;
-    if (meal === "Salchipapa" && hadSalchipapaLastWeek) {
-      return { blocked: true, reason: "Bloqueado: Salchipapa consumida la semana pasada (bloqueo consecutivo)." };
-    }
-
-    // 4. Out of Stock validation
-    if (meal === "Hamburguesa" || meal === "Pizza" || meal === "Sushi") {
-      let consumedHealthyCount = 0;
-      state.history.forEach(h => {
-        if (h.semana !== state.current_week) {
-          const mN = h.cena_novio;
-          const mG = h.cena_novia;
-          if (mN === "Hamburguesa" || mN === "Pizza" || mN === "Sushi") {
-            consumedHealthyCount += 0.5;
-          }
-          if (mG === "Hamburguesa" || mG === "Pizza" || mG === "Sushi") {
-            consumedHealthyCount += 0.5;
-          }
-        }
-      });
-      // Add proposed meal for current user (which adds 0.5)
-      consumedHealthyCount += 0.5;
-      
-      // Add other partner's current week choice if in the shared pool
-      const otherPartnerMeal = userKey === "novio" ? currentWeekData.cena_novia : currentWeekData.cena_novio;
-      if (otherPartnerMeal === "Hamburguesa" || otherPartnerMeal === "Pizza" || otherPartnerMeal === "Sushi") {
-        consumedHealthyCount += 0.5;
-      }
-
-      const limit = 5.0; // Shared healthy pool total across the cycle
-      if (consumedHealthyCount > limit) {
-        return { blocked: true, reason: `Sin stock: No quedan porciones en el grupo saludable compartido (Hamburguesa/Pizza/Sushi) en el ciclo (Máx: 5 semanas).` };
-      }
-    } else {
-      let consumedCount = 0;
-      state.history.forEach(h => {
-        if (h.semana !== state.current_week) {
-          const mN = h.cena_novio;
-          const mG = h.cena_novia;
-          if (mN === mG) {
-            if (mN === meal) consumedCount += 1.0;
-          } else {
-            if (mN === meal) consumedCount += 0.5;
-            if (mG === meal) consumedCount += 0.5;
-          }
-        }
-      });
-      const otherPartnerMeal = userKey === "novio" ? currentWeekData.cena_novia : currentWeekData.cena_novio;
-      if (otherPartnerMeal === meal) {
-        consumedCount += 1.0;
-      } else {
-        consumedCount += 0.5;
-      }
-
-      const limit = meal === "Otra" ? 1.0 : 2.0;
-      if (consumedCount > limit) {
-        return { blocked: true, reason: `Sin stock: No quedan porciones libres de ${meal} suficientes en tu fondo.` };
-      }
-    }
-
-    return { blocked: false, reason: "" };
-  };
-
-  // 8-week structured roadmap guide helpers
-  const getRecommendedMealForWeek = (weekNum: number): { meal: MealType, extra: boolean, desc: string } => {
-    switch (weekNum) {
-      case 1: return { meal: "Sushi", extra: false, desc: "Fase de inicio con proteína limpia sin azúcares." };
-      case 2: return { meal: "Hamburguesa", extra: true, desc: "Modera grasa con hamburguesa y tu primer extra dulce." };
-      case 3: return { meal: "Salchipapa", extra: false, desc: "Cena pesada habilitada. Cuidado: prohibido extra." };
-      case 4: return { meal: "Pizza", extra: true, desc: "Fase intermedia. Pizza con extra dulce permitido hoy." };
-      case 5: return { meal: "Hamburguesa", extra: false, desc: "Fase de control. Hamburguesa sola sin postre." };
-      case 6: return { meal: "Otra", extra: true, desc: "Subway de pechuga o Tacos balanceados con extra de helado." };
-      case 7: return { meal: "Salchipapa", extra: false, desc: "Última cena pesada del ciclo. Prohibido extra dulce." };
-      case 8: return { meal: "Pizza", extra: true, desc: "Cierre festivo del ciclo de 8 semanas con Pizza y helado." };
-      default: return { meal: "Sushi", extra: false, desc: "" };
-    }
-  };
-
-  // Direct state modifications for the weekly meal planner with strict rules of constraints
-  const setMealForUser = (userKey: "novio" | "novia", meal: MealType | null) => {
-    if (meal) {
-      const status = getMealBlockStatus(userKey, meal);
-      if (status.blocked) {
-        triggerPushNotification(status.reason, "block");
-        return;
-      }
-    }
-
-    const updatedHistory = state.history.map((h) => {
-      if (h.semana === state.current_week) {
-        const updated = { ...h };
-        if (userKey === "novio") {
-          updated.cena_novio = meal;
-        } else {
-          updated.cena_novia = meal;
-        }
-        updated.cena = updated.cena_novio || updated.cena_novia;
-        return updated;
-      }
-      return h;
-    });
-
-    const newState = {
-      ...state,
-      history: updatedHistory
-    };
-    setState(newState);
+    const start = new Date(state.cycle_start_date);
+    const now = new Date();
+    const diffMs = now.getTime() - start.getTime();
+    if (diffMs <= 0) return 1;
     
-    // Trigger notification
-    const userName = userKey === "novio" ? novioName : noviaName;
-    const mealText = meal ? `eligió ${meal}` : "quitó su cena";
-    triggerPushNotification(`🍽️ ${userName} ${mealText} para la Semana ${state.current_week}`, "info");
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const calculated = Math.floor(diffDays / 7) + 1;
+    return Math.min(8, Math.max(1, calculated));
   };
 
-  const toggleExtraForWeek = (weekNum: number) => {
-    const currentWeekData = state.history.find(h => h.semana === weekNum);
-    if (!currentWeekData) return;
+  const currentComputedWeek = calculateComputedWeek();
 
-    const nowHasExtra = !currentWeekData.extra;
+  // Handle setting a custom meal selection for a specific partner in a specific week
+  const handleSelectMeal = (weekNum: number, partner: "novio" | "novia", meal: MealType | null) => {
+    const isStarting = !state.cycle_start_date;
+    let updatedStartDate = state.cycle_start_date;
 
-    if (nowHasExtra) {
-      // Rule 1: Same-week Extra vs Salchipapa mutual exclusion
-      const hasSalchipapa = currentWeekData.cena_novio === "Salchipapa" || currentWeekData.cena_novia === "Salchipapa";
-      if (hasSalchipapa) {
-        triggerPushNotification(`❌ Bloqueado: No se puede agregar un Extra dulce (Helado) si hay Salchipapa seleccionada esta semana.`, "block");
-        return;
-      }
-
-      // Rule 2: Consecutive Extra sweet block
-      const previousWeekData = state.history.find(h => h.semana === weekNum - 1);
-      const hadExtraLastWeek = previousWeekData ? previousWeekData.extra : false;
-      if (hadExtraLastWeek) {
-        triggerPushNotification(`❌ Bloqueo Secuencial: Comieron Extra dulce la semana pasada. Debe descansar este fin de semana.`, "block");
-        return;
-      }
-
-      // Rule 3: Out of Stock validation
-      let extrasConsumed = 0;
-      state.history.forEach(h => {
-        if (h.semana !== weekNum && h.extra) {
-          extrasConsumed++;
-        }
-      });
-      if (extrasConsumed >= 4) {
-        triggerPushNotification(`❌ Límite Alcanzado: Ya consumieron el máximo de 4 Extras dulces en este ciclo.`, "block");
-        return;
-      }
+    // The cycle starts strictly upon registering the very first week!
+    if (isStarting) {
+      const today = new Date();
+      updatedStartDate = today.toISOString();
+      triggerToast("🚀 ¡Plan de 8 semanas INICIADO automáticamente hoy con su primer registro!");
     }
 
     const updatedHistory = state.history.map((h) => {
       if (h.semana === weekNum) {
-        if (nowHasExtra) {
-          if (weekNum % 2 !== 0) {
-            triggerPushNotification(`⚠️ El plan sugiere NO usar extras en semanas impares (Semana ${weekNum}) para no saturar.`, "block");
-          } else {
-            triggerPushNotification(`🍦 ¡Delicioso! Extra programado de forma segura para la Semana ${weekNum}.`, "success");
-          }
+        const nextInfo = { ...h };
+        if (partner === "novio") {
+          nextInfo.cena_novio = meal;
         } else {
-          triggerPushNotification(`🍦 Removieron el Extra dulce de la Semana ${weekNum}.`, "info");
+          nextInfo.cena_novia = meal;
         }
-        return { ...h, extra: nowHasExtra };
+        nextInfo.cena = nextInfo.cena_novio || nextInfo.cena_novia;
+
+        // Auto calculate corresponding professional healthy Castigo
+        const penalty = calculateCastigo(nextInfo.cena_novio, nextInfo.cena_novia, nextInfo.extra);
+        nextInfo.castigo_task = penalty || undefined;
+        if (!penalty) {
+          nextInfo.castigo_completed = false;
+        }
+        return nextInfo;
       }
       return h;
     });
-    setState({
-      ...state,
+
+    setState(prev => ({
+      ...prev,
+      cycle_start_date: updatedStartDate,
+      current_week: isStarting ? 1 : prev.current_week,
       history: updatedHistory
-    });
-  };
+    }));
 
-  const selectCurrentWeek = (weekNum: number) => {
-    setState({
-      ...state,
-      current_week: weekNum
-    });
-    // Trigger week transition notification
-    triggerPushNotification(`📅 Semana ${weekNum} activa. Evaluando estados y bloqueos...`, "info");
-
-    // Personalized weekly motivational alert
-    if (enableMotivationalAlert) {
-      let motMsg = "";
-      switch (weekNum) {
-        case 1: motMsg = `✨ ¡Comenzamos este viaje de salud y amor! Respeten el déficit de lunes a viernes y celebren el fin de semana.`; break;
-        case 2: motMsg = `🔥 ¡Semana 2 activa! La consistencia inicial es clave. ¡Ustedes pueden mantener el control!`; break;
-        case 3: motMsg = `👟 ¡Semana 3! El ritmo metabólico se enciende. Controlen las salchipapas y beban suficiente agua de lunes a viernes.`; break;
-        case 4: motMsg = `🍧 ¡Semana 4, mitad del camino! Un extra dulce está permitido si logran entrenar juntos esta semana.`; break;
-        case 5: motMsg = `🎯 ¡Semana 5! Segunda parte del ciclo. No bajen la guardia, el esfuerzo mutuo vale oro.`; break;
-        case 6: motMsg = `💪 ¡Semana 6! La constancia empieza a dar frutos. Se ven fantásticos, mantengan el enfoque este fin de semana.`; break;
-        case 7: motMsg = `🔋 ¡Semana 7! Recta final del ciclo. Protejan lo logrado y recuerden el cardio compensatorio.`; break;
-        case 8: motMsg = `🏆 ¡Semana 8, la gran meta! Han sido campeones del autocontrol. Cierren este ciclo de forma épica.`; break;
-        default: motMsg = `🌟 ¡Fuerza pareja! El éxito físico y el bienestar se construyen plato a plato.`; break;
-      }
-      setTimeout(() => {
-        triggerPushNotification(`💌 Motivación Semanal (${motivationalDay}): ${motMsg}`, "success");
-      }, 1000);
+    if (meal) {
+      triggerToast(`🍽️ ${partner === "novio" ? novioName : nattName} eligió ${meal} para la Semana ${weekNum}`);
+    } else {
+      triggerToast(`🧼 Elección removida para la Semana ${weekNum}`);
     }
   };
 
-  const resetCycle = () => {
-    setShowResetConfirm(true);
+  // Switch sweet extra dessert status
+  const handleToggleExtra = (weekNum: number) => {
+    const isStarting = !state.cycle_start_date;
+    let updatedStartDate = state.cycle_start_date;
+
+    if (isStarting) {
+      const today = new Date();
+      updatedStartDate = today.toISOString();
+      triggerToast("🚀 ¡Plan de 8 semanas INICIADO automáticamente hoy con su primer registro de Extra!");
+    }
+
+    const updatedHistory = state.history.map((h) => {
+      if (h.semana === weekNum) {
+        const nextInfo = { ...h, extra: !h.extra };
+        const penalty = calculateCastigo(nextInfo.cena_novio, nextInfo.cena_novia, nextInfo.extra);
+        nextInfo.castigo_task = penalty || undefined;
+        return nextInfo;
+      }
+      return h;
+    });
+
+    setState(prev => ({
+      ...prev,
+      cycle_start_date: updatedStartDate,
+      history: updatedHistory
+    }));
+
+    const targetWeek = state.history.find(h => h.semana === weekNum);
+    const nextVal = targetWeek ? !targetWeek.extra : true;
+    if (nextVal) {
+      triggerToast(`🍧 Extra dulce programado para la Semana ${weekNum}`);
+    } else {
+      triggerToast(`🍦 Extra dulce desmarcado para la Semana ${weekNum}`);
+    }
   };
 
-  // Pre-fill a realistic active history for testing
-  const loadDemoState = () => {
-    const demoHistory: SemanalInfo[] = [
-      { semana: 1, cena_novio: "Sushi", cena_novia: "Sushi", cena: "Sushi", extra: false },
-      { semana: 2, cena_novio: "Hamburguesa", cena_novia: "Sushi", cena: "Hamburguesa", extra: true },
-      { semana: 3, cena_novio: "Salchipapa", cena_novia: "Salchipapa", cena: "Salchipapa", extra: false },
-      { semana: 4, cena_novio: "Pizza", cena_novia: "Hamburguesa", cena: "Pizza", extra: true },
-      { semana: 5, cena_novio: "Hamburguesa", cena_novia: "Hamburguesa", cena: "Hamburguesa", extra: false },
+  // Toggle active penity / castigo task completed status
+  const handleTogglePenanceCompleted = (weekNum: number) => {
+    const updatedHistory = state.history.map((h) => {
+      if (h.semana === weekNum) {
+        const nextVal = !h.castigo_completed;
+        if (nextVal) {
+          triggerToast(`🏆¡Felicidades! Castigo saludable de Semana ${weekNum} completado y racha reparada.`);
+        }
+        return { ...h, castigo_completed: nextVal };
+      }
+      return h;
+    });
+    setState(prev => ({
+      ...prev,
+      history: updatedHistory
+    }));
+  };
+
+  // Quick Action: Eat the same selection (Duplicar elección)
+  const handleDuplicarEleccion = (weekNum: number) => {
+    const weekData = state.history.find(h => h.semana === weekNum);
+    if (!weekData) return;
+
+    if (weekData.cena_novio && !weekData.cena_novia) {
+      handleSelectMeal(weekNum, "novia", weekData.cena_novio);
+      triggerToast(`💞 ¡Sincronizados! ${nattName} ahora comerá ${weekData.cena_novio} también.`);
+    } else if (weekData.cena_novia && !weekData.cena_novio) {
+      handleSelectMeal(weekNum, "novio", weekData.cena_novia);
+      triggerToast(`💞 ¡Sincronizados! ${JossName} ahora comerá ${weekData.cena_novia} también.`);
+    } else {
+      triggerToast(`⚠️ Uno de los dos debe seleccionar una comida primero para poder duplicarla.`);
+    }
+  };
+
+  // Get active name label helper
+  const JossName = "Joss";
+
+  const handleResetCycle = () => {
+    localStorage.removeItem("fitcycle_couple_state_v2");
+    setState(getInitialState());
+    setBackdateDays("0");
+    setShowResetConfirm(false);
+    triggerToast("🔄 El ciclo ha sido reiniciado por completo. Listos para empezar!");
+    setActiveTab("calendar");
+  };
+
+  const handleLoadSimulation = () => {
+    // Generate realistic historical demo data
+    const now = new Date();
+    // Start cycle exactly 4 weeks ago
+    const simulatedStart = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+    const simulatedHistory: SemanalInfo[] = [
+      { 
+        semana: 1, 
+        cena_novio: "Sushi", 
+        cena_novia: "Sushi", 
+        cena: "Sushi", 
+        extra: false, 
+        castigo_task: "🟢 Racha Limpia: Realizar 30 min de cardio habitual los días lunes o martes para maximizar la oxidación de grasas posterior y acelerar el vaciado de jugos gástricos.", 
+        castigo_completed: true 
+      },
+      { 
+        semana: 2, 
+        cena_novio: "Hamburguesa", 
+        cena_novia: "Pizza", 
+        cena: "Hamburguesa", 
+        extra: true, 
+        castigo_task: "⚡ Drenaje Glucogénico: Recortar carbohidratos simples el lunes (sólo proteínas y crucíferos), más entrenamiento de piernas de altas repeticiones el miércoles para re-sensibilizar receptores de insulina. 🍧 [Ajuste de Insulina]: Evitar edulcorantes/estevia por 4 días para calmar receptores de dopamina, más 15 min de Cardio HIIT post-pescar hoy lunes.", 
+        castigo_completed: true 
+      },
+      { 
+        semana: 3, 
+        cena_novio: "Salchipapa", 
+        cena_novia: "Salchipapa", 
+        cena: "Salchipapa", 
+        extra: false, 
+        castigo_task: "🚨 Protocolo de Choque Sódico: Realizar 45 min de cardio LISS (Caminata inclinada) en ayunas lunes, martes y miércoles, más beber 4.5 litros de agua diarios por 3 días para drenar retención celular.", 
+        castigo_completed: false 
+      },
+      { 
+        semana: 4, 
+        cena_novio: "Sándwich Callejero", 
+        cena_novia: "Hamburguesa", 
+        cena: "Sándwich Callejero", 
+        extra: true, 
+        castigo_task: "🚨 Protocolo de Choque Sódico: Realizar 45 min de cardio LISS (Caminata inclinada) en ayunas lunes, martes y miércoles, más beber 4.5 litros de agua diarios por 3 días para drenar retención celular. 🍧 [Ajuste de Insulina]: Evitar edulcorantes/estevia por 4 días para calmar receptores de dopamina, más 15 min de Cardio HIIT post-pescar hoy lunes.", 
+        castigo_completed: false 
+      },
+      { semana: 5, cena_novio: null, cena_novia: null, cena: null, extra: false },
       { semana: 6, cena_novio: null, cena_novia: null, cena: null, extra: false },
       { semana: 7, cena_novio: null, cena_novia: null, cena: null, extra: false },
       { semana: 8, cena_novio: null, cena_novia: null, cena: null, extra: false },
     ];
+
     setState({
-      current_week: 6,
-      history: demoHistory
+      current_week: 5,
+      cycle_start_date: simulatedStart.toISOString(),
+      history: simulatedHistory
     });
-    triggerPushNotification("📊 Cargados datos de prueba para la Semana 6 del ciclo.", "success");
-    setActiveTab("dashboard");
+
+    triggerToast("✨ Simulación realista de racha cargada en la Semana 5.");
+    setActiveTab("calendar");
   };
 
-  // Profile status stats calculators
-  const getProfileStats = (userKey: "novio" | "novia") => {
-    let dinnersCount = 0;
-    let extrasCount = 0;
-    const mealsList: MealType[] = [];
+  // Adjust start date backwards for debugging / fine adjustments
+  const handleBackdateCycle = (days: number) => {
+    if (!state.cycle_start_date) {
+      triggerToast("⚠️ El ciclo aún no ha iniciado. Registra una comida primero.");
+      return;
+    }
+    const currentStart = new Date(state.cycle_start_date);
+    const newStart = new Date(currentStart.getTime() - days * 24 * 60 * 60 * 1000);
+    setState(prev => ({
+      ...prev,
+      cycle_start_date: newStart.toISOString()
+    }));
+    triggerToast(`📅 Fecha de inicio retrocedida ${days} días.`);
+  };
 
-    state.history.forEach(h => {
-      const meal = userKey === "novio" ? h.cena_novio : h.cena_novia;
-      if (meal) {
-        dinnersCount++;
-        mealsList.push(meal);
-      }
-      if (h.extra) {
-        extrasCount++;
-      }
+  // Calculate Portion Consumption for Portions/Stock view
+  const getInventoryStatus = () => {
+    let hamburguesasUsed = 0;
+    let salchipapasUsed = 0;
+    let pizzasUsed = 0;
+    let sushisUsed = 0;
+    let perrosUsed = 0;
+    let sandwichesUsed = 0;
+    let arepasUsed = 0;
+    let extrasUsed = 0;
+
+    state.history.forEach((h) => {
+      // Joss
+      if (h.cena_novio === "Hamburguesa") hamburguesasUsed += 0.5;
+      else if (h.cena_novio === "Salchipapa") salchipapasUsed += 0.5;
+      else if (h.cena_novio === "Pizza") pizzasUsed += 0.5;
+      else if (h.cena_novio === "Sushi") sushisUsed += 0.5;
+      else if (h.cena_novio === "Perro Caliente") perrosUsed += 0.5;
+      else if (h.cena_novio === "Sándwich Callejero") sandwichesUsed += 0.5;
+      else if (h.cena_novio === "Arepa") arepasUsed += 0.5;
+
+      // Natt
+      if (h.cena_novia === "Hamburguesa") hamburguesasUsed += 0.5;
+      else if (h.cena_novia === "Salchipapa") salchipapasUsed += 0.5;
+      else if (h.cena_novia === "Pizza") pizzasUsed += 0.5;
+      else if (h.cena_novia === "Sushi") sushisUsed += 0.5;
+      else if (h.cena_novia === "Perro Caliente") perrosUsed += 0.5;
+      else if (h.cena_novia === "Sándwich Callejero") sandwichesUsed += 0.5;
+      else if (h.cena_novia === "Arepa") arepasUsed += 0.5;
+
+      if (h.extra) extrasUsed += 1.0;
     });
 
-    // Calculate favorite
-    let favorite: MealType | string = "Ninguno aún";
-    if (mealsList.length > 0) {
-      const counts: Record<string, number> = {};
-      mealsList.forEach(m => { counts[m] = (counts[m] || 0) + 1; });
-      let maxCount = 0;
-      Object.entries(counts).forEach(([meal, count]) => {
-        if (count > maxCount) {
-          maxCount = count;
-          favorite = meal;
-        }
-      });
-    }
-
     return {
-      dinnersCount,
-      extrasCount,
-      favorite
+      hamburguesa: { label: "🍔 Hamburguesas", max: 2, used: hamburguesasUsed, remaining: Math.max(0, 2 - hamburguesasUsed) },
+      salchipapa: { label: "🍟 Salchipapas", max: 1, used: salchipapasUsed, remaining: Math.max(0, 1 - salchipapasUsed) },
+      pizza: { label: "🍕 Pizzas", max: 2, used: pizzasUsed, remaining: Math.max(0, 2 - pizzasUsed) },
+      sushi: { label: "🍣 Sushis", max: 1, used: sushisUsed, remaining: Math.max(0, 1 - sushisUsed) },
+      perro_caliente: { label: "🌭 Perros Calientes", max: 1, used: perrosUsed, remaining: Math.max(0, 1 - perrosUsed) },
+      sandwich_callejero: { label: "🥪 Sándwiches", max: 1, used: sandwichesUsed, remaining: Math.max(0, 1 - sandwichesUsed) },
+      arepa: { label: "🫓 Arepas", max: 1, used: arepasUsed, remaining: Math.max(0, 1 - arepasUsed) },
+      extras: { label: "🍧 Extras Dulces", max: 4, used: extrasUsed, remaining: Math.max(0, 4 - extrasUsed) }
     };
   };
 
-  const novioStats = getProfileStats("novio");
-  const noviaStats = getProfileStats("novia");
+  const inventory = getInventoryStatus();
 
-  // Determine mixing compatibility for current week
-  const currentWeekInfo = state.history.find(h => h.semana === state.current_week);
-  const mChoice = currentWeekInfo?.cena_novio || null;
-  const fChoice = currentWeekInfo?.cena_novia || null;
+  // Highlight warnings or low-stocks
+  const hasLowStocks = Object.values(inventory).some(item => item.remaining <= 0.5 && item.remaining > 0);
 
-  let mixingStatus: "SAFE" | "PROHIBITED" | "OPTIMAL" | "NONE" = "NONE";
-  let mixingMessage = "";
-
-  if (mChoice && fChoice) {
-    if (mChoice === fChoice) {
-      mixingStatus = "SAFE";
-      mixingMessage = `🟢 Alineación Perfecta: Ambos comerán ${mChoice} juntos. Es súper cómodo para cocinar o pedir a domicilio, ¡disfruten sin culpa!`;
-    } else {
-      // Check for forbidden combinations (Grasa + Grasa)
-      const hasSalchipapa = mChoice === "Salchipapa" || fChoice === "Salchipapa";
-      const hasPizza = mChoice === "Pizza" || fChoice === "Pizza";
-      const hasHamburguesa = mChoice === "Hamburguesa" || fChoice === "Hamburguesa";
-      const hasSushi = mChoice === "Sushi" || fChoice === "Sushi";
-
-      if (hasSalchipapa && (hasPizza || hasHamburguesa)) {
-        mixingStatus = "PROHIBITED";
-        mixingMessage = `❌ Combinación Pesada (Evitar): Unir Salchipapa + ${hasPizza ? "Pizza" : "Hamburguesa"} junta demasiada grasa saturada y sodio. ¡Su cuerpo congelará el déficit de toda la semana!`;
-      } else if (
-        (hasHamburguesa && hasSushi) || 
-        (hasPizza && hasHamburguesa) || 
-        (hasSushi && hasPizza)
-      ) {
-        mixingStatus = "OPTIMAL";
-        mixingMessage = `🟢 Mitad y Mitad Óptimo: Combinar ${mChoice} con ${fChoice} está aprobado. Es una excelente mezcla de proteína limpia y carbohidratos. ¡Compártanlo felices!`;
-      } else {
-        mixingStatus = "SAFE";
-        mixingMessage = `🟡 Combinación Balanceada: Compartir mitad de ${mChoice} y mitad de ${fChoice} es viable. Mantengan el consumo de agua alto durante el día.`;
-      }
+  // Recommendations roadmap helper
+  const getRoadmapForWeek = (weekNum: number) => {
+    switch (weekNum) {
+      case 1: return "🍣 Sushi (Proteína limpia) - ¡Fuerza inicial!";
+      case 2: return "🍔 Hamburguesa + 🍧 Permitido 1er Extra dulce";
+      case 3: return "🍟 Salchipapa (Pesada) - 🔒 Prohibidos extras";
+      case 4: return "🍕 Pizza + 🍧 Permitido Extra dulce";
+      case 5: return "🍔 Hamburguesa sola de control - Sin postre";
+      case 6: return "🥪 Sándwich Callejero + 🍧 Extra dulce";
+      case 7: return "🌭 Perro Caliente o Arepa - 🔒 Prohibidos extras";
+      case 8: return "🍕 Pizza / Hamburguesa festiva + 🍧 Cierre con Extra";
+      default: return "";
     }
-  } else if (mChoice || fChoice) {
-    const who = mChoice ? novioName : noviaName;
-    const mealName = mChoice || fChoice;
-    mixingStatus = "SAFE";
-    mixingMessage = `🍽️ Solo ${who} ha seleccionado ${mealName} para este fin de semana. El otro perfil puede elegir para habilitar el análisis de "Mitad y Mitad".`;
-  } else {
-    mixingStatus = "NONE";
-    mixingMessage = "No se ha registrado ninguna cena libre todavía para este fin de semana. ¡Seleccionen abajo para empezar!";
-  }
-
-  // Stock inventory calculation based on current state
-  const getPortionQuantities = () => {
-    if (apiResponse) {
-      return apiResponse.inventario;
-    }
-    // Simple fallback calculation
-    let hamburguesa = 5.0;
-    let salchipapa = 2.0;
-    let pizza = 5.0; // Same shared pool
-    let sushi = 5.0;
-    let extras = 4.0;
-    let otra_comida = 1.0;
-
-    state.history.forEach(h => {
-      const mN = h.cena_novio;
-      const mG = h.cena_novia;
-      
-      // Calculate healthy pool
-      if (mN === "Hamburguesa" || mN === "Pizza" || mN === "Sushi") hamburguesa -= 0.5;
-      if (mG === "Hamburguesa" || mG === "Pizza" || mG === "Sushi") hamburguesa -= 0.5;
-      
-      if (mN === "Salchipapa") salchipapa -= 0.5;
-      if (mG === "Salchipapa") salchipapa -= 0.5;
-
-      if (mN === "Otra") otra_comida -= 0.5;
-      if (mG === "Otra") otra_comida -= 0.5;
-
-      if (h.extra) extras -= 1.0;
-    });
-
-    pizza = hamburguesa;
-    sushi = hamburguesa;
-
-    return {
-      hamburguesa: Math.max(0, hamburguesa),
-      salchipapa: Math.max(0, salchipapa),
-      pizza: Math.max(0, pizza),
-      sushi: Math.max(0, sushi),
-      otra_comida: Math.max(0, otra_comida),
-      extras: Math.max(0, extras)
-    };
   };
 
-  const inventory = getPortionQuantities();
-
-  const getInventoryBg = (qty: number, max: number) => {
-    const percent = qty / max;
-    if (percent === 0) return "bg-slate-100 border-slate-200 text-slate-400";
-    if (percent <= 0.3) return "bg-rose-50 border-rose-100 text-rose-700";
-    if (percent <= 0.6) return "bg-amber-50 border-amber-100 text-amber-700";
-    return "bg-white border-slate-100/70 text-slate-800";
-  };
+  // Pre-calculated stats for visual summaries
+  const totalCheatsRecorded = state.history.filter(h => h.cena_novio !== null || h.cena_novia !== null).length;
+  const totalExtrasRecorded = state.history.filter(h => h.extra).length;
+  const completedPenancesCount = state.history.filter(h => h.castigo_task && h.castigo_completed).length;
+  const activePenancesCount = state.history.filter(h => h.castigo_task && !h.castigo_completed).length;
 
   return (
-    <div className="min-h-screen bg-slate-900 flex md:py-6 md:px-4 items-center justify-center font-sans select-none overflow-x-hidden">
+    <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center font-sans antialiased text-slate-900 md:p-6 select-none select-none">
       
-      {/* Device frame centered on desktop, true fullscreen on mobile */}
-      <div className="w-full max-w-sm h-[100dvh] md:h-[840px] md:max-h-[90vh] md:rounded-[40px] md:border-8 md:border-slate-800 bg-[#F4F7F9] relative flex flex-col md:shadow-2xl overflow-hidden shadow-none border-none rounded-none text-slate-800">
+      {/* Container simulating high-end mobile frame perfectly optimized for mobile screen dimensions */}
+      <div className="w-full max-w-md h-[100dvh] md:h-[860px] md:max-h-[92vh] md:rounded-[48px] md:border-8 md:border-slate-800 bg-slate-50 relative flex flex-col md:shadow-2xl overflow-hidden shadow-none border-none rounded-none">
         
-        {/* TOP STATUS AND APP BAR (Header) */}
-        <header className="bg-white border-b border-slate-100/80 px-4 py-3 shrink-0 flex items-center justify-between z-30 shadow-xs relative">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-red-500 rounded-lg flex items-center justify-center text-white shadow-xs">
-              <Heart size={14} className="fill-white" />
+        {/* UPPER FIXED HEADER BAR */}
+        <header className="bg-white border-b border-slate-100 px-5 py-4 shrink-0 flex items-center justify-between z-30 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-red-500 rounded-xl flex items-center justify-center text-white shadow-sm">
+              <Heart size={16} className="fill-white" />
             </div>
             <div>
-              <h1 className="text-sm font-black tracking-tight text-slate-950 flex items-center gap-1 font-display">
-                FitCycle <span className="text-[10px] text-red-500 font-extrabold font-mono tracking-tighter">💕 PWA</span>
+              <h1 className="text-sm font-black tracking-tight text-slate-900 flex items-center gap-1 font-display leading-none">
+                FitCycle <span className="text-[9px] bg-red-105 text-red-600 font-extrabold px-1.5 py-0.5 rounded-sm">COMPROMISO</span>
               </h1>
-              <p className="text-[9px] text-slate-400 leading-none">Tracker Joss & Nati</p>
+              <p className="text-[10px] text-slate-400 mt-0.5 font-bold leading-none">Joss & Natt</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Week switch selector dropdown styled custom */}
-            <div className="bg-slate-100 rounded-lg px-2 py-1 flex items-center gap-1 border border-slate-200/50">
-              <Calendar size={11} className="text-sky-500" />
-              <select
-                value={state.current_week}
-                onChange={(e) => selectCurrentWeek(parseInt(e.target.value))}
-                className="font-black text-[11px] text-slate-800 bg-transparent border-none focus:outline-none cursor-pointer pr-1"
-              >
-                {[1,2,3,4,5,6,7,8].map((w) => (
-                  <option key={w} value={w}>Sem. {w}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Notifications Bell */}
-            <div className="relative">
-              <button
-                onClick={() => setShowNotificationList(!showNotificationList)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition hover:bg-slate-100 relative cursor-pointer"
-                title="Centro de alertas"
-              >
-                <Bell size={15} className={notifications.length > 0 ? "text-red-500 fill-red-50" : ""} />
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              </button>
-
-              {/* Overlaid notification drawer (Mobile safe size) */}
-              {showNotificationList && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 p-3 z-50 animate-fade-in text-xs max-h-72 overflow-y-auto">
-                  <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-100">
-                    <span className="font-extrabold text-slate-700 tracking-wider">Notificaciones 📱</span>
-                    <button
-                      onClick={() => setNotifications([])}
-                      className="text-[10px] text-sky-500 font-black hover:underline"
-                    >
-                      Limpiar
-                    </button>
-                  </div>
-                  {notifications.length === 0 ? (
-                    <p className="text-[10px] text-slate-450 text-center py-4">Sin nuevas alertas de racha o porciones.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {notifications.map((n) => (
-                        <div key={n.id} className="text-[10px] text-slate-700 leading-snug p-2 rounded-xl bg-slate-50 border border-slate-100/50">
-                          <p>{n.text}</p>
-                          <span className="text-[8px] text-slate-400 block mt-1">{n.time}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+            {/* Clock & Real countdown helper */}
+            <div className="bg-slate-100 rounded-lg px-2.5 py-1.5 flex items-center gap-1 border border-slate-250/20">
+              <Clock size={12} className="text-red-550" />
+              <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">
+                {state.cycle_start_date ? `Semana ${currentComputedWeek}` : "Pausa"}
+              </span>
             </div>
           </div>
         </header>
 
-        {/* DYNAMIC TOAST NOTIFICATE ON SCREEN TOP */}
+        {/* TOAST PANEL (Overlaid Alert system) */}
         {toastMessage && (
-          <div className="absolute top-14 left-4 right-4 z-50 animate-bounce bg-slate-900 border border-slate-800 text-white p-3 rounded-2xl shadow-lg flex items-center gap-2 text-[10px]">
-            <span className="w-2 h-2 rounded-full bg-red-400 animate-ping shrink-0" />
-            <p className="font-bold leading-tight">{toastMessage}</p>
+          <div className="absolute top-16 left-4 right-4 z-50 bg-slate-900 text-white rounded-2xl p-3.5 shadow-xl flex items-center gap-2.5 border border-slate-800 animate-slide-in">
+            <Sparkles size={16} className="text-yellow-400 shrink-0" />
+            <p className="text-xs font-bold leading-snug">{toastMessage}</p>
           </div>
         )}
 
-        {/* MIDDLE CONTENTS WRAPPER (Smooth Inner Scroll) */}
-        <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-24 focus:outline-none scroll-smooth">
+        {/* SUBHEADER: LIVE INTELLIGENT CELLULAR DATE TRACKING INTERACTION */}
+        <div className="bg-white px-5 py-3 border-b border-slate-100 shrink-0 flex items-center justify-between gap-3 text-xs">
+          <div className="flex-1">
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className={`w-2.5 h-2.5 rounded-full inline-block ${dayStatus.isPreplanning ? "bg-cyan-500" : "bg-emerald-500"}`} />
+              <span className="font-extrabold text-[11px] text-slate-700 tracking-wide uppercase">Hoy: {dayStatus.currentDayName} ({dayStatus.badgeText})</span>
+            </div>
+            <p className="text-[10px] text-slate-500 leading-snug">{dayStatus.description}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <span className="text-[10px] text-slate-400 block font-semibold">Calendario Celular</span>
+            <span className="text-[10px] font-black text-slate-800 leading-none">Activo en Vivo</span>
+          </div>
+        </div>
+
+        {/* INTERNAL SCROLL CONTENT CONTAINER */}
+        <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-20 scroll-smooth">
           
-          {/* TAB 1: DASHBOARD FEATURE */}
-          {activeTab === "dashboard" && (
-            <div className="space-y-4 animate-fade-in">
-              
-              {/* RECOMMENDED MASTER MEAL CARD */}
-              {(() => {
-                const recommendation = getRecommendedMealForWeek(state.current_week);
-                let recoIcon = "🍔";
-                if (recommendation.meal === "Salchipapa") recoIcon = "🍟";
-                if (recommendation.meal === "Pizza") recoIcon = "🍕";
-                if (recommendation.meal === "Sushi") recoIcon = "🍣";
-                if (recommendation.meal === "Otra") recoIcon = "🍱";
-
-                return (
-                  <div className="bg-white/90 rounded-2xl p-4 border border-rose-100 shadow-xs relative overflow-hidden">
-                    <div className="absolute -top-3 -right-3 w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center text-xs opacity-40 leading-none">
-                      👑
-                    </div>
-                    <span className="bg-rose-50 text-rose-600 text-[8px] uppercase tracking-widest font-black px-2 py-0.5 rounded-md">
-                      Plan Maestro Sugerido
-                    </span>
-                    <div className="flex items-center gap-3 mt-2">
-                      <div className="text-3xl">{recoIcon}</div>
-                      <div>
-                        <h3 className="font-extrabold text-xs text-slate-900 leading-snug">
-                          Semana {state.current_week}: {recommendation.meal}
-                        </h3>
-                        <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                          {recommendation.extra ? "Habilitado con extra dulce 🍨" : "Sin extra permitido esta semana 🔒"}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-2.5 leading-snug border-t border-slate-100 pt-2 bg-slate-50/50 p-1.5 rounded-lg italic">
-                      "{recommendation.desc}"
-                    </p>
-                  </div>
-                );
-              })()}
-
-              {/* SEMAFORO STATUS CAPSULE */}
-              <div className={`p-3.5 rounded-2xl border flex items-start gap-3 transition-all ${
-                mixingStatus === "PROHIBITED"
-                  ? "bg-rose-50 border-rose-200 text-rose-950"
-                  : mixingStatus === "OPTIMAL"
-                    ? "bg-teal-50 border-teal-200 text-teal-950"
-                    : "bg-sky-50 border-sky-200 text-sky-950"
-              }`}>
-                <div className="text-2xl shrink-0 pt-0.5">
-                  {mixingStatus === "PROHIBITED" ? "🔴" : mixingStatus === "OPTIMAL" ? "🟢" : "🟡"}
-                </div>
-                <div>
-                  <h4 className="font-black text-[10px] uppercase tracking-widest mb-0.5">
-                    Semáforo: {mixingStatus === "PROHIBITED" ? "Restricción" : mixingStatus === "OPTIMAL" ? "Sinergia" : "Alineación"}
-                  </h4>
-                  <p className="text-[11px] leading-relaxed font-semibold">{mixingMessage}</p>
-                </div>
-              </div>
-
-              {/* JOSS & NATI ACTIVE PLATERS CARDS */}
-              <div className="space-y-3.5">
-                
-                {/* 1. NOVIO SELECTOR (Joss) */}
-                <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs relative">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-black uppercase text-sky-600 tracking-wider flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
-                      Su Plato - {novioName}
-                    </span>
-                    {currentWeekInfo?.cena_novio && (
-                      <button
-                        onClick={() => setMealForUser("novio", null)}
-                        className="text-[9px] text-slate-400 font-bold hover:text-red-500 flex items-center gap-0.5 transition"
-                      >
-                        <Trash2 size={10} /> Quitar
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between mb-3 bg-sky-50/50 p-2 rounded-xl border border-sky-100/30">
-                    <span className="text-[10px] text-slate-500">Elección hoy:</span>
-                    <span className="text-xs font-black text-sky-950 uppercase tracking-wide">
-                      {currentWeekInfo?.cena_novio ? `🍔 ${currentWeekInfo.cena_novio}` : "⚪ Ninguno aún"}
-                    </span>
-                  </div>
-
-                  {/* 5 direct buttons with absolute visibility */}
-                  <div className="grid grid-cols-5 gap-1 pt-1">
-                    {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Otra"] as MealType[]).map((meal) => {
-                      const isSelected = currentWeekInfo?.cena_novio === meal;
-                      const blockInfo = getMealBlockStatus("novio", meal);
-
-                      let mealIcon = "🍔";
-                      if (meal === "Salchipapa") mealIcon = "🍟";
-                      if (meal === "Pizza") mealIcon = "🍕";
-                      if (meal === "Sushi") mealIcon = "🍣";
-                      if (meal === "Otra") mealIcon = "🍱";
-
-                      return (
-                        <button
-                          key={meal}
-                          type="button"
-                          onClick={() => {
-                            if (blockInfo.blocked && !isSelected) {
-                              triggerPushNotification(blockInfo.reason, "block");
-                              return;
-                            }
-                            setMealForUser("novio", isSelected ? null : meal);
-                          }}
-                          className={`py-2 rounded-xl border text-xs font-black cursor-pointer flex flex-col items-center justify-center transition ${
-                            isSelected
-                              ? "bg-sky-500 border-sky-600 text-white shadow-md shadow-sky-100"
-                              : blockInfo.blocked
-                                ? "bg-slate-50 border-dashed border-slate-200 text-slate-300 opacity-40 cursor-not-allowed"
-                                : "bg-white hover:bg-slate-50 border-slate-200/60 text-slate-700"
-                          }`}
-                          title={blockInfo.blocked ? blockInfo.reason : meal}
-                        >
-                          <span className="text-lg leading-none">{mealIcon}</span>
-                          <span className="text-[8px] mt-0.5 font-bold tracking-tight block max-w-full truncate">{meal.substring(0, 4)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 2. NOVIA SELECTOR (Nati) */}
-                <div className="bg-white rounded-2xl p-4 border border-rose-55 hover:border-rose-100 shadow-xs relative">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-black uppercase text-rose-500 tracking-wider flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
-                      Su Plato - {noviaName}
-                    </span>
-                    {currentWeekInfo?.cena_novia && (
-                      <button
-                        onClick={() => setMealForUser("novia", null)}
-                        className="text-[9px] text-slate-400 font-bold hover:text-red-500 flex items-center gap-0.5 transition"
-                      >
-                        <Trash2 size={10} /> Quitar
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between mb-3 bg-rose-50/50 p-2 rounded-xl border border-rose-100/30">
-                    <span className="text-[10px] text-slate-500">Elección hoy:</span>
-                    <span className="text-xs font-black text-rose-950 uppercase tracking-wide">
-                      {currentWeekInfo?.cena_novia ? `🍔 ${currentWeekInfo.cena_novia}` : "⚪ Ninguno aún"}
-                    </span>
-                  </div>
-
-                  {/* 5 direct buttons with absolute visibility */}
-                  <div className="grid grid-cols-5 gap-1 pt-1">
-                    {(["Hamburguesa", "Salchipapa", "Pizza", "Sushi", "Otra"] as MealType[]).map((meal) => {
-                      const isSelected = currentWeekInfo?.cena_novia === meal;
-                      const blockInfo = getMealBlockStatus("novia", meal);
-
-                      let mealIcon = "🍔";
-                      if (meal === "Salchipapa") mealIcon = "🍟";
-                      if (meal === "Pizza") mealIcon = "🍕";
-                      if (meal === "Sushi") mealIcon = "🍣";
-                      if (meal === "Otra") mealIcon = "🍱";
-
-                      return (
-                        <button
-                          key={meal}
-                          type="button"
-                          onClick={() => {
-                            if (blockInfo.blocked && !isSelected) {
-                              triggerPushNotification(blockInfo.reason, "block");
-                              return;
-                            }
-                            setMealForUser("novia", isSelected ? null : meal);
-                          }}
-                          className={`py-2 rounded-xl border text-xs font-black cursor-pointer flex flex-col items-center justify-center transition ${
-                            isSelected
-                              ? "bg-rose-400 border-rose-500 text-white shadow-md shadow-rose-100"
-                              : blockInfo.blocked
-                                ? "bg-slate-50 border-dashed border-slate-200 text-slate-300 opacity-40 cursor-not-allowed"
-                                : "bg-white hover:bg-slate-50 border-slate-200/60 text-slate-700"
-                          }`}
-                          title={blockInfo.blocked ? blockInfo.reason : meal}
-                        >
-                          <span className="text-lg leading-none">{mealIcon}</span>
-                          <span className="text-[8px] mt-0.5 font-bold tracking-tight block max-w-full truncate">{meal.substring(0, 4)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* POSTRE EXTRA SWITCHER */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="text-2xl">🍧</div>
-                  <div>
-                    <h4 className="text-xs font-black text-slate-900 leading-snug">Extra dulce (Helado / Granizado)</h4>
-                    <p className="text-[9px] text-slate-400">Usar máximo cada 15 días (Semanas pares)</p>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={state.history.find(h => h.semana === state.current_week)?.extra || false}
-                    onChange={() => toggleExtraForWeek(state.current_week)}
-                    className="sr-only peer"
-                    disabled={activeTab === "inventory"}
-                  />
-                  <div className="w-10 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-450 bg-slate-200 peer-checked:bg-red-550"></div>
-                </label>
-              </div>
-
-              {/* 💞 COORDINATION COMER LO MISMO SHORTCUT */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (currentWeekInfo?.cena_novio) {
-                    setMealForUser("novia", currentWeekInfo.cena_novio);
-                    triggerPushNotification(`💞 ¡Alineados! Ambos comerán ${currentWeekInfo.cena_novio} juntos.`, "success");
-                  } else if (currentWeekInfo?.cena_novia) {
-                    setMealForUser("novio", currentWeekInfo.cena_novia);
-                    triggerPushNotification(`💞 ¡Alineados! Ambos comerán ${currentWeekInfo.cena_novia} juntos.`, "success");
-                  } else {
-                    triggerPushNotification("⚠️ Registra el plato de uno de ustedes primero.", "block");
-                  }
-                }}
-                className="w-full py-3 bg-red-100/50 hover:bg-rose-100 border border-red-200/50 rounded-2xl text-xs font-black text-red-600 transition flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-95 duration-200"
-              >
-                💞 Comer lo Mismo (Duplicar elección)
-              </button>
-
-            </div>
-          )}
-
-          {/* TAB 2: INVENTORY FEATURE */}
-          {activeTab === "inventory" && (
+          {/* TAB 1: INTERACTIVE CALENDAR DASHBOARD */}
+          {activeTab === "calendar" && (
             <div className="space-y-4 animate-fade-in text-slate-800">
-              
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs">
-                <h3 className="font-extrabold text-xs text-slate-950 uppercase tracking-wider mb-1">Stock de Porciones del Ciclo</h3>
-                <p className="text-[10px] text-slate-550 mb-4 leading-normal">Porciones disponibles calculadas por el motor inteligente para aguantar las 8 semanas de déficit.</p>
-                
-                <div className="grid grid-cols-2 gap-3 mb-2">
+
+              {/* Status on Cycle State */}
+              {!state.cycle_start_date ? (
+                <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-2xl p-5 shadow-sm space-y-3">
+                  <Flame size={24} className="text-white animate-pulse" />
+                  <h3 className="font-black text-sm tracking-tight">¡Esperando Inicio del Ciclo! 🚀</h3>
+                  <p className="text-xs leading-relaxed text-red-50 font-semibold">
+                    El tracker inteligente de 8 semanas está listo. Se iniciará automáticamente en cuanto registren la primera comida de cheat meal o dulce de este fin de semana.
+                  </p>
+                  <p className="text-[10px] bg-white/10 p-2 rounded-lg text-red-100 font-bold">
+                    💡 La app detecta si estás en "Programación del Finde" (Lunes a Jueves) o "Consumo Real" (Viernes a Domingo) usando la fecha de tu celular.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl p-4 border border-slate-205/60 shadow-xs text-xs space-y-2">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                    <span className="font-extrabold text-slate-700 uppercase tracking-widest text-[10px]">Estatus de Racha actual</span>
+                    <span className="bg-emerald-100 text-emerald-800 font-bold text-[9px] px-2 py-0.5 rounded-full uppercase">Ciclo Activo</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-bold text-slate-600">
+                    <div>📅 Inicio: <span className="font-extrabold text-slate-850">{new Date(state.cycle_start_date).toLocaleDateString()}</span></div>
+                    <div>🎯 Semana actual: <span className="font-extrabold text-red-550">Semana {currentComputedWeek} de 8</span></div>
+                  </div>
+                </div>
+              )}
+
+              {/* WEEKLY CALENDAR LIST CARDS */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="font-extrabold text-xs text-slate-500 uppercase tracking-wider">Cronograma de 8 Semanas</h3>
+                  <span className="text-[10px] text-slate-400 font-bold">Juntos en esto 💕</span>
+                </div>
+
+                {state.history.map((week) => {
+                  const isCur = week.semana === currentComputedWeek;
+                  const isCompleted = week.cena_novio !== null || week.cena_novia !== null;
                   
-                  {/* Category 1: Healthy group (5.0 max) */}
-                  <div className={`p-3 rounded-xl border flex flex-col justify-between ${getInventoryBg(inventory.hamburguesa, 5.0)}`}>
-                    <span className="text-[8px] font-black uppercase tracking-wider block text-slate-400 mb-1">Saludables</span>
-                    <span className="text-xl">🍔🍕🍣</span>
-                    <div className="mt-2">
-                      <p className="text-xs font-black text-slate-950 leading-none">{inventory.hamburguesa.toFixed(1)} / 5.0</p>
-                      <p className="text-[9px] text-slate-500 mt-1">Porciones de Hamb/Piz/Sushi</p>
-                    </div>
-                  </div>
+                  // Icons mappings
+                  const getMealIcon = (m: MealType | null) => {
+                    if (!m) return "🍽️";
+                    if (m === "Hamburguesa") return "🍔";
+                    if (m === "Salchipapa") return "🍟";
+                    if (m === "Pizza") return "🍕";
+                    if (m === "Sushi") return "🍣";
+                    if (m === "Perro Caliente") return "🌭";
+                    if (m === "Sándwich Callejero") return "🥪";
+                    if (m === "Arepa") return "🫓";
+                    return "🍱";
+                  };
 
-                  {/* Category 2: Salchipapas (2.0 max) */}
-                  <div className={`p-3 rounded-xl border flex flex-col justify-between ${getInventoryBg(inventory.salchipapa, 2.0)}`}>
-                    <span className="text-[8px] font-black uppercase tracking-wider block text-slate-400 mb-1">Doble Grasa</span>
-                    <span className="text-xl">🍟🍟</span>
-                    <div className="mt-2">
-                      <p className="text-xs font-black text-slate-950 leading-none">{inventory.salchipapa.toFixed(1)} / 2.0</p>
-                      <p className="text-[9px] text-slate-500 mt-1">Porciones Salchipapa</p>
-                    </div>
-                  </div>
-
-                  {/* Category 3: Extras (4.0 max) */}
-                  <div className={`p-3 rounded-xl border flex flex-col justify-between ${getInventoryBg(inventory.extras, 4.0)}`}>
-                    <span className="text-[8px] font-black uppercase tracking-wider block text-slate-400 mb-1">Extras</span>
-                    <span className="text-xl">🍨🍧</span>
-                    <div className="mt-2">
-                      <p className="text-xs font-black text-slate-950 leading-none">{inventory.extras.toFixed(1)} / 4.0</p>
-                      <p className="text-[9px] text-slate-500 mt-1">Míticos dulces permitidos</p>
-                    </div>
-                  </div>
-
-                  {/* Category 4: Otras (1.0 max) */}
-                  <div className={`p-3 rounded-xl border flex flex-col justify-between ${getInventoryBg(inventory.otra_comida, 1.0)}`}>
-                    <span className="text-[8px] font-black uppercase tracking-wider block text-slate-400 mb-1">Otros antojos</span>
-                    <span className="text-xl">🍱</span>
-                    <div className="mt-2">
-                      <p className="text-xs font-black text-slate-950 leading-none">{inventory.otra_comida.toFixed(1)} / 1.0</p>
-                      <p className="text-[9px] text-slate-500 mt-1">Platos alternativos</p>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* BLOCKED STATS */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-3">
-                <h3 className="font-extrabold text-xs text-slate-900 uppercase">Bloqueos de Racha y Re-consumo</h3>
-                
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-                    <span className="font-bold flex items-center gap-1.5 text-slate-805">🍟 Salchipapa Consecutiva</span>
-                    {inventory.salchipapa <= 0.5 ? (
-                      <span className="bg-red-500 text-white font-bold text-[8px] px-2 py-0.5 rounded uppercase">BLOQUEADO</span>
-                    ) : (
-                      <span className="bg-emerald-500 text-white font-bold text-[8px] px-2 py-0.5 rounded uppercase">HABILITADO</span>
-                    )}
-                  </div>
-                  <div className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-                    <span className="font-bold flex items-center gap-1.5 text-slate-805">🍦 Extra Dulce Paralelo</span>
-                    {inventory.extras <= 0.5 ? (
-                      <span className="bg-red-500 text-white font-bold text-[8px] px-2 py-0.5 rounded uppercase">BLOQUEADO</span>
-                    ) : (
-                      <span className="bg-emerald-500 text-white font-bold text-[8px] px-2 py-0.5 rounded uppercase">HABILITADO</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* TRAFFIC LIGHT INFO SHELLS */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-3">
-                <h3 className="font-extrabold text-xs text-slate-900 uppercase">Resumen de Combinación "Mitad y Mitad"</h3>
-                <div className="space-y-2.5 text-[11px] leading-relaxed">
-                  <div className="border-l-2 border-emerald-500 pl-2">
-                    <strong className="text-emerald-700">🟢 Mezcla Óptima</strong>: Hamb + Sushi, Pizza + Sushi. Proteína con carbohidratos equilibrados.
-                  </div>
-                  <div className="border-l-2 border-amber-400 pl-2">
-                    <strong className="text-amber-600">🟡 Mezcla Seguro</strong>: Ambos comen el mismo plato (ej. Pizza + Pizza) o Subway.
-                  </div>
-                  <div className="border-l-2 border-red-500 pl-2">
-                    <strong className="text-red-600">🔴 Combinación Prohibida</strong>: Salchipapa + Pizza, Salchipapa + Hamburguesa. Demasiados ácidos grasos y grasas trans saturando el hígado. ¡Evitar a toda costa de lunes a viernes y fines de semana!
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 3: WEEKLY MAP SEQUENCE */}
-          {activeTab === "map" && (
-            <div className="space-y-4 animate-fade-in">
-              
-              {/* TIMELINE PROGRESS GRID OVERVIEW */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs">
-                <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-wide mb-1">Mapa de 8 Semanas</h3>
-                <p className="text-[10px] text-slate-400 mb-4 leading-normal">Haz clic en cualquier burbuja para reactivar hoy la edición de esa semana.</p>
-
-                <div className="grid grid-cols-4 gap-2">
-                  {state.history.map((h) => {
-                    const isSelected = h.semana === state.current_week;
-                    const hasSelection = h.cena_novio || h.cena_novia;
-
-                    let displayIcon = "🍽️";
-                    if (h.cena_novio === "Salchipapa" || h.cena_novia === "Salchipapa") displayIcon = "🍟";
-                    else if (h.cena_novio === "Hamburguesa" || h.cena_novia === "Hamburguesa") displayIcon = "🍔";
-                    else if (h.cena_novio === "Pizza" || h.cena_novia === "Pizza") displayIcon = "🍕";
-                    else if (h.cena_novio === "Sushi" || h.cena_novia === "Sushi") displayIcon = "🍣";
-                    else if (h.cena_novio === "Otra" || h.cena_novia === "Otra") displayIcon = "🍱";
-
-                    return (
-                      <button
-                        key={h.semana}
-                        onClick={() => selectCurrentWeek(h.semana)}
-                        className={`p-2.5 rounded-xl border flex flex-col items-center justify-center transition cursor-pointer relative ${
-                          isSelected
-                            ? "ring-2 ring-red-500 bg-white border-red-100"
-                            : hasSelection
-                              ? "bg-sky-50 border-sky-100 text-sky-950"
-                              : "bg-slate-50/80 border-slate-200 text-slate-450"
-                        }`}
-                      >
-                        <span className="text-[9px] font-black text-slate-500 opacity-80 uppercase">S. {h.semana}</span>
-                        <span className="text-lg my-1 block">{displayIcon}</span>
-                        <div className="flex gap-0.5 items-center">
-                          {h.extra && <span className="text-[9px]">🍦</span>}
-                          <span className="text-[8px] font-black tracking-tighter text-slate-400">
-                            {hasSelection ? "Reg." : "Vacío"}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* RECOMMENDED SCHEDULER TIMELINE OVERVIEW */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-3">
-                <h3 className="font-extrabold text-xs text-slate-900 uppercase">Cronograma Maestro Sugerido</h3>
-                
-                <div className="space-y-2 max-h-60 overflow-y-auto text-[11px] pr-1">
-                  {[1,2,3,4,5,6,7,8].map((w) => {
-                    const rec = getRecommendedMealForWeek(w);
-                    return (
-                      <div key={w} className={`p-2 rounded-lg border flex justify-between items-center ${w === state.current_week ? "bg-red-50/50 border-red-100" : "bg-slate-50/80 border-slate-100"}`}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-slate-600">Semana {w}</span>
-                          <span className="text-slate-500">|</span>
-                          <span className="font-bold text-slate-900">{rec.meal}</span>
-                        </div>
-                        <span className="text-[9px] text-slate-400 truncate max-w-28">{rec.extra ? "🍦 Postre Sí" : "🔒 Postre No"}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 4: IA CHAT PROCESSOR */}
-          {activeTab === "ai" && (
-            <div className="flex flex-col h-[400px] md:h-[480px] bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden animate-fade-in">
-              
-              {/* Messages viewport */}
-              <div 
-                ref={chatContainerRef}
-                className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50/60"
-              >
-                {chatMessages.map((m) => {
-                  const isBot = m.sender === "ai";
                   return (
                     <div 
-                      key={m.id}
-                      className={`flex flex-col max-w-[85%] ${isBot ? "self-start mr-auto" : "self-end ml-auto"}`}
+                      key={week.semana}
+                      className={`rounded-2xl border transition-all duration-200 ${
+                        isCur 
+                          ? "bg-white border-red-200 shadow-md ring-2 ring-red-100" 
+                          : isCompleted 
+                            ? "bg-slate-50 border-slate-200 opacity-90"
+                            : "bg-white border-slate-150"
+                      }`}
                     >
-                      <div className={`p-2.5 rounded-xl text-xs leading-relaxed ${
-                        isBot 
-                          ? "bg-slate-100 text-slate-800 rounded-tl-none border border-slate-200/50" 
-                          : "bg-red-500 text-white rounded-tr-none"
-                      }`}>
-                        <p className="font-bold mb-0.5 text-[10px] uppercase opacity-75">
-                          {isBot ? "Asistente IA" : `${novioName}/${noviaName}`}
-                        </p>
-                        <p>{m.text}</p>
+                      {/* Week Header */}
+                      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-6 h-6 rounded-full font-black text-xs flex items-center justify-center ${
+                            isCur 
+                              ? "bg-red-500 text-white animate-pulse" 
+                              : isCompleted 
+                                ? "bg-slate-300 text-slate-600"
+                                : "bg-slate-100 text-slate-400"
+                          }`}>
+                            {week.semana}
+                          </span>
+                          <div>
+                            <span className="font-black text-slate-800 text-xs">Semana {week.semana}</span>
+                            <span className="text-[10px] text-slate-400 block font-semibold leading-none mt-0.5">
+                              Sugerido: {getRoadmapForWeek(week.semana)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Status Label based on real dates */}
+                        {isCur && (
+                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${
+                            dayStatus.isPreplanning ? "bg-cyan-100 text-cyan-800" : "bg-teal-100 text-teal-800"
+                          }`}>
+                            {dayStatus.badgeText}
+                          </span>
+                        )}
+                        {!isCur && isCompleted && (
+                          <span className="text-[8px] font-black uppercase bg-slate-200 text-slate-600 px-2 py-0.5 rounded">
+                            Historial
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[7.5px] text-slate-400 block mt-0.5 text-right px-1">{m.time}</span>
+
+                      {/* Partners Selector Panel */}
+                      <div className="p-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          
+                          {/* JOSS INPUT SELECTOR */}
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-extrabold uppercase text-slate-450 tracking-wider flex items-center gap-1">
+                              👦 {JossName}
+                            </label>
+                            
+                            <select
+                              value={week.cena_novio || ""}
+                              onChange={(e) => handleSelectMeal(week.semana, "novio", (e.target.value as MealType) || null)}
+                              className="w-full bg-slate-100 border border-slate-200 p-2.5 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-300 cursor-pointer"
+                            >
+                              <option value="">🍽️ Sin Registrar</option>
+                              <option value="Hamburguesa">🍔 Hamburguesa</option>
+                              <option value="Salchipapa">🍟 Salchipapa</option>
+                              <option value="Pizza">🍕 Pizza</option>
+                              <option value="Sushi">🍣 Sushi</option>
+                              <option value="Perro Caliente">🌭 Perro Caliente</option>
+                              <option value="Sándwich Callejero">🥪 Sándwich Callejero</option>
+                              <option value="Arepa">🫓 Arepa</option>
+                            </select>
+
+                            <div className="text-center py-1 rounded bg-slate-50 text-[10px] font-extrabold text-slate-600">
+                              {getMealIcon(week.cena_novio)} {week.cena_novio || "Vacío"}
+                            </div>
+                          </div>
+
+                          {/* NATT INPUT SELECTOR */}
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-extrabold uppercase text-slate-450 tracking-wider flex items-center gap-1">
+                              👧 {nattName}
+                            </label>
+                            
+                            <select
+                              value={week.cena_novia || ""}
+                              onChange={(e) => handleSelectMeal(week.semana, "novia", (e.target.value as MealType) || null)}
+                              className="w-full bg-slate-100 border border-slate-200 p-2.5 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-300 cursor-pointer"
+                            >
+                              <option value="">🍽️ Sin Registrar</option>
+                              <option value="Hamburguesa">🍔 Hamburguesa</option>
+                              <option value="Salchipapa">🍟 Salchipapa</option>
+                              <option value="Pizza">🍕 Pizza</option>
+                              <option value="Sushi">🍣 Sushi</option>
+                              <option value="Perro Caliente">🌭 Perro Caliente</option>
+                              <option value="Sándwich Callejero">🥪 Sándwich Callejero</option>
+                              <option value="Arepa">🫓 Arepa</option>
+                            </select>
+
+                            <div className="text-center py-1 rounded bg-slate-50 text-[10px] font-extrabold text-slate-600">
+                              {getMealIcon(week.cena_novia)} {week.cena_novia || "Vacío"}
+                            </div>
+                          </div>
+
+                        </div>
+
+                        {/* Duplicated meals helper & Extras Dulces row */}
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-4">
+                          
+                          {/* Sweet Extra switch */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleExtra(week.semana)}
+                              className={`p-1.5 px-3 rounded-lg border text-[11px] font-black flex items-center gap-1 cursor-pointer transition ${
+                                week.extra 
+                                  ? "bg-rose-50 border-rose-200 text-rose-700 font-extrabold" 
+                                  : "bg-slate-100 border-slate-200 text-slate-400"
+                              }`}
+                            >
+                              🍧 {week.extra ? "Extra Activo" : "Sin Extra dulce"}
+                            </button>
+                          </div>
+
+                          {/* Match Selector duplicated helper */}
+                          {((week.cena_novio && !week.cena_novia) || (week.cena_novia && !week.cena_novio)) && (
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicarEleccion(week.semana)}
+                              className="text-[10px] text-red-600 font-black flex items-center gap-1 hover:underline cursor-pointer"
+                            >
+                              💞 Comer lo Mismo
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Calculated Fit Corrective Penance Task summary for visualization */}
+                        {week.castigo_task && (
+                          <div className="bg-amber-50/75 border border-amber-200 p-3 rounded-xl space-y-2 mt-2">
+                            <h5 className="font-extrabold text-[10px] text-amber-800 tracking-wider uppercase flex items-center gap-1">
+                              ⚠️ Castigo de Reparación:
+                            </h5>
+                            <p className="text-[10.5px] leading-relaxed text-amber-950 font-medium">
+                              {week.castigo_task}
+                            </p>
+                            <div className="flex items-center justify-between pt-1 border-t border-amber-200/50">
+                              <span className="text-[9px] text-slate-500">¿Daño compensado esta semana limpia?</span>
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePenanceCompleted(week.semana)}
+                                className={`text-[10px] font-black px-2.5 py-1 rounded-lg transition shrink-0 ${
+                                  week.castigo_completed 
+                                    ? "bg-emerald-600 text-white" 
+                                    : "bg-white hover:bg-amber-100 text-amber-900 border border-amber-350"
+                                }`}
+                              >
+                                {week.castigo_completed ? "✔ Completado" : "Pendiente"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* HORIZONTAL QUICK COMMAND PILLS */}
-              <div className="shrink-0 p-2 bg-white border-t border-slate-100 flex gap-1.5 overflow-x-auto scrollbar-none whitespace-nowrap">
-                {quickChatPills.map((p, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleSendMessage(p.text)}
-                    className="p-1 px-2.5 bg-slate-100 hover:bg-red-50 hover:text-red-600 rounded-lg text-[9px] font-extrabold text-slate-600 transition tracking-tight shrink-0 border border-slate-200/50 cursor-pointer"
-                  >
-                    {p.label}
-                  </button>
-                ))}
+            </div>
+          )}
+
+          {/* TAB 2: PORTION INVENTORIES */}
+          {activeTab === "inventory" && (
+            <div className="space-y-4 animate-fade-in text-slate-800">
+              
+              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs">
+                <h3 className="font-black text-xs text-slate-905 uppercase tracking-wider mb-1">
+                  Inventario en Vivo de las 8 Semanas
+                </h3>
+                <p className="text-[10.5px] text-slate-500 leading-normal mb-5 font-semibold">
+                  Porciones máximas permitidas para Joss y Natt combinadas para evitar estancamientos metabólicos durante el ciclo:
+                </p>
+
+                <div className="space-y-4">
+                  {Object.entries(inventory).map(([key, item]) => {
+                    const percent = (item.remaining / item.max) * 100;
+                    
+                    // Style indicators
+                    let barBg = "bg-red-500";
+                    let textAccent = "text-slate-800";
+                    if (percent === 0) {
+                      barBg = "bg-slate-300";
+                      textAccent = "text-slate-400 font-bold";
+                    } else if (percent <= 25) {
+                      barBg = "bg-rose-500 animate-pulse";
+                      textAccent = "text-red-650 font-black";
+                    } else if (percent <= 50) {
+                      barBg = "bg-amber-500";
+                      textAccent = "text-amber-800 font-extrabold";
+                    } else {
+                      barBg = "bg-emerald-500";
+                    }
+
+                    return (
+                      <div key={key} className="space-y-1 pb-1">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-black text-slate-800">{item.label}</span>
+                          <span className={`text-[11px] font-black ${textAccent}`}>
+                            {item.remaining.toFixed(1)} libres (Usadas: {item.used.toFixed(1)} / Máx: {item.max})
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-205/30">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-300 ${barBg}`}
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {hasLowStocks && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 mt-4">
+                    <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-amber-900 leading-normal">
+                      <strong>¡Alerta de Consumo Crítico!</strong> Algunas porciones se encuentran muy bajas. Conversen entre ustedes para gestionar los próximos fines de semana.
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* INPUT BAR FOR FAST CHAT MESSAGE */}
-              <div className="shrink-0 p-2 bg-slate-50 border-t border-slate-100 flex gap-2">
-                <input
-                  type="text"
-                  value={inputText}
-                  placeholder={`Di algo, ej: Joss comió pizza...`}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSendMessage();
-                  }}
-                  className="flex-1 bg-white text-xs border border-slate-200 rounded-xl px-3 focus:outline-none focus:border-red-505 focus:ring-1 focus:ring-red-500 text-slate-800"
-                />
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={loading}
-                  className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-xl transition cursor-pointer shrink-0"
-                >
-                  <Send size={14} />
-                </button>
+              {/* MOTIVATIONAL STATISTICS BOARD */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs space-y-3 shrink-0">
+                <h3 className="font-black text-xs text-slate-900 uppercase tracking-wide">
+                  Historial de Esfuerzo Resumido
+                </h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center">
+                    <span className="text-[9px] text-slate-400 uppercase font-black block leading-none">Cenas Libres</span>
+                    <span className="text-lg font-black text-slate-800 block mt-1">{(totalCheatsRecorded * 2).toFixed(0)}</span>
+                    <span className="text-[8px] text-slate-405 block font-bold">Porciones registradas</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center">
+                    <span className="text-[9px] text-slate-400 uppercase font-black block leading-none">Extras Dulces</span>
+                    <span className="text-lg font-black text-slate-800 block mt-1">{totalExtrasRecorded}</span>
+                    <span className="text-[8px] text-slate-405 block font-bold">Consumos permitidos</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center">
+                    <span className="text-[9px] text-slate-400 uppercase font-black block leading-none">Compensados</span>
+                    <span className="text-lg font-black text-emerald-600 block mt-1">{completedPenancesCount}</span>
+                    <span className="text-[8px] text-slate-405 block font-bold">Castigos saludables</span>
+                  </div>
+                </div>
               </div>
 
             </div>
           )}
 
-          {/* TAB 5: ADJUSTMENT CONFIGURATION FOR ALERTS */}
+          {/* TAB 3: CASTIGOS PENANCES CHECKLIST */}
+          {activeTab === "penance" && (
+            <div className="space-y-4 animate-fade-in text-slate-800">
+              
+              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs">
+                <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600">
+                    <Zap size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-xs text-slate-905 uppercase tracking-widest">
+                      Compensación Saludable (Monitoreo)
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-bold leading-none mt-0.5">La ciencia reparadora post-deslices</p>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-relaxed mt-4 bg-slate-50 p-3 rounded-xl border border-slate-150 shadow-3xs font-semibold">
+                  💡 <strong>¿Por qué se aplican castigos saludables?</strong> Cuando consumen sodio elevado, grasas rústicas o dulces concentrados, los receptores se saturan y el agua celular se eleva. En lugar de bloquearlos, utilicen estas técnicas clínicas de compensación lunes a jueves para resetear el metabolismo de inmediato.
+                </p>
+
+                {/* ACTIVE CASTIGOS CHECKLOGS */}
+                <div className="space-y-3.5 mt-5">
+                  <h4 className="text-[11px] font-extrabold text-slate-450 uppercase tracking-widest">Compromisos de las 8 semanas:</h4>
+                  
+                  {state.history.filter(h => h.castigo_task).length === 0 ? (
+                    <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <Award size={28} className="text-red-400 mx-auto mb-2 animate-bounce" />
+                      <p className="text-[11px] text-slate-400 font-extrabold">¡Racha Perfecta! Sin daños ni castigos pendientes todavía.</p>
+                    </div>
+                  ) : (
+                    state.history.filter(h => h.castigo_task).map((week) => (
+                      <div 
+                        key={week.semana}
+                        className={`p-4 rounded-xl border transition ${
+                          week.castigo_completed 
+                            ? "bg-emerald-50/50 border-emerald-200 opacity-80" 
+                            : "bg-amber-50/40 border-amber-200"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="font-black text-slate-700 text-xs">Semana {week.semana}</span>
+                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
+                            week.castigo_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {week.castigo_completed ? "🏆 Completado" : "Pendiente"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-800 leading-normal mb-3 font-semibold">
+                          {week.castigo_task}
+                        </p>
+                        
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePenanceCompleted(week.semana)}
+                            className="w-full py-2 rounded-lg text-xs font-black text-center flex items-center justify-center gap-1.5 cursor-pointer border border-slate-200 transition bg-white hover:bg-slate-100"
+                          >
+                            <CheckSquare size={13} className={week.castigo_completed ? "text-emerald-600 fill-emerald-50" : "text-slate-400"} />
+                            <span>{week.castigo_completed ? "Desmarcar para revisar" : "Marcar Castigo de Semana como Hecho"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* TAB 4: ADJUSTMENTS / SETTINGS */}
           {activeTab === "settings" && (
             <div className="space-y-4 animate-fade-in text-slate-800">
               
-              {/* Couple configuration names block */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-3">
-                <h3 className="font-extrabold text-xs text-slate-900 uppercase">👥 Perfiles de la Pareja</h3>
-                
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[8px] uppercase font-bold text-slate-400 mb-1">Nombre Novio</label>
-                    <input
-                      type="text"
-                      value={novioName}
-                      onChange={(e) => {
-                        setNovioName(e.target.value);
-                        triggerPushNotification(`Perfil de Novio actualizado a ${e.target.value}`, "success");
-                      }}
-                      className="w-full bg-slate-50 px-3 py-1.5 text-xs border border-slate-100 rounded-xl focus:outline-none focus:border-red-500 focus:bg-white text-slate-800 font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[8px] uppercase font-bold text-slate-400 mb-1">Nombre Novia</label>
-                    <input
-                      type="text"
-                      value={noviaName}
-                      onChange={(e) => {
-                        setNoviaName(e.target.value);
-                        triggerPushNotification(`Perfil de Novia actualizado a ${e.target.value}`, "success");
-                      }}
-                      className="w-full bg-slate-50 px-3 py-1.5 text-xs border border-slate-100 rounded-xl focus:outline-none focus:border-red-500 focus:bg-white text-slate-800 font-bold"
-                    />
-                  </div>
+              <div className="bg-white rounded-2xl p-5 border border-slate-150 shadow-xs">
+                <div className="pb-3 border-b border-slate-100">
+                  <h3 className="font-black text-xs text-slate-905 uppercase tracking-wider">
+                    Ajustes de Joss & Natt
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5 font-bold">Configuren o reseteen su ciclo sin rodeos o AI logs</p>
                 </div>
-              </div>
 
-              {/* Interactive notification control engine */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-4">
-                <h3 className="font-extrabold text-xs text-slate-900 uppercase">🔔 Alertas e Integración PWA</h3>
-                
-                {/* 1. Weekend Register reminder */}
-                <div className="space-y-2 border-b border-slate-50 pb-3">
-                  <div className="flex justify-between items-center bg-slate-50/50 p-2 rounded-xl">
-                    <span className="font-bold text-[11px] text-slate-80s flex items-center gap-1">🗓️ Alerta de Registro Sábado</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={enableWeekendReminder}
-                        onChange={(e) => {
-                          setEnableWeekendReminder(e.target.checked);
-                          triggerPushNotification(e.target.checked ? "🔔 Alerta de fin de semana encendida." : "🔕 Alerta apagada.", "info");
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className="w-8 h-4.5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-red-500"></div>
-                    </label>
-                  </div>
+                <div className="space-y-4 mt-4">
                   
-                  {enableWeekendReminder && (
-                    <div className="grid grid-cols-2 gap-2 text-[10px] pl-2">
-                      <div className="flex flex-col">
-                        <span className="text-slate-400">Día de alarma:</span>
+                  {/* Info Row block */}
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5 space-y-2 text-xs">
+                    <h5 className="font-extrabold text-[10px] text-slate-450 uppercase uppercase tracking-wider flex items-center gap-1">
+                      <UserCheck size={12} className="text-red-500" /> Perfiles Activos
+                    </h5>
+                    <p className="font-extrabold text-slate-800">👦 Novio: <span className="text-red-650">Joss</span></p>
+                    <p className="font-extrabold text-slate-800">👧 Novia: <span className="text-red-650">Natt</span></p>
+                  </div>
+
+                  {/* Date tuning Backdater adjustment tool (Extremely high fidelity for practical coupling!) */}
+                  {state.cycle_start_date ? (
+                    <div className="space-y-2 p-3.5 border border-slate-200 rounded-xl bg-slate-50">
+                      <h4 className="font-extrabold text-[10px] uppercase text-slate-700 tracking-wider">
+                        📅 Cambiar Fecha de Inicio del Ciclo
+                      </h4>
+                      <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">
+                        Retroceder la fecha de inicio del ciclo si lo registraron tarde o desean coordinar semanas con otro día:
+                      </p>
+                      
+                      <div className="flex gap-2">
                         <select
-                          value={weekendReminderDay}
-                          onChange={(e) => setWeekendReminderDay(e.target.value)}
-                          className="font-bold bg-slate-100 rounded p-1"
+                          value={backdateDays}
+                          onChange={(e) => setBackdateDays(e.target.value)}
+                          className="flex-1 bg-white border border-slate-300 rounded-xl text-xs p-2 font-bold cursor-pointer"
                         >
-                          <option value="Sábado">Sábado</option>
-                          <option value="Viernes">Viernes</option>
-                          <option value="Domingo">Domingo</option>
+                          <option value="0">Hoy (No retroceder)</option>
+                          <option value="7">1 semana atrás (-7 días)</option>
+                          <option value="14">2 semanas atrás (-14 días)</option>
+                          <option value="21">3 semanas atrás (-21 días)</option>
+                          <option value="28">4 semanas atrás (-28 días)</option>
                         </select>
+                        <button
+                          type="button"
+                          onClick={() => handleBackdateCycle(parseInt(backdateDays))}
+                          className="bg-slate-900 text-white rounded-xl p-2 px-3.5 text-xs font-black hover:bg-slate-800 shrink-0 cursor-pointer"
+                        >
+                          Aplicar
+                        </button>
                       </div>
-                      <div className="flex flex-col">
-                        <span className="text-slate-400">Hora de alarma:</span>
-                        <input
-                          type="text"
-                          value={weekendReminderTime}
-                          onChange={(e) => setWeekendReminderTime(e.target.value)}
-                          className="font-bold bg-slate-100 rounded p-1 text-center"
-                        />
-                      </div>
+                      <p className="text-[9px] text-slate-400 italic font-semibold">
+                        Fecha de inicio configurada en la app: {new Date(state.cycle_start_date).toLocaleString()}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-3 text-center bg-slate-100 rounded-xl text-[10px] text-slate-400">
+                      Registra tu primera cena para habilitar la fecha de inicio del ciclo.
                     </div>
                   )}
 
-                  <button
-                    onClick={() => {
-                      triggerPushNotification(`📲 Recordatorio PWA: ¡Hola ${novioName} y ${noviaName}! Fin de semana activo. Recuerden registrar su cena libre de la Semana ${state.current_week} y tomar sus 3 Litros de agua hoy.`, "info");
-                    }}
-                    className="w-full mt-2 py-1 bg-slate-100 text-slate-700 font-extrabold text-[10px] rounded-lg cursor-pointer hover:bg-slate-200"
-                  >
-                    ⚡ Simular Recordatorio de Registro
-                  </button>
-                </div>
+                  {/* Actions buttons */}
+                  <div className="space-y-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadSimulation}
+                      className="w-full py-3 bg-red-50 hover:bg-red-100/70 text-red-700 border border-red-200/50 rounded-2xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-3xs"
+                    >
+                      🧪 Cargar Simulación de Prueba (Semana 5)
+                    </button>
 
-                {/* 2. Low Stock Alerts Custom Threshold */}
-                <div className="space-y-2 border-b border-slate-50 pb-3">
-                  <div className="flex justify-between items-center bg-slate-50/50 p-2 rounded-xl">
-                    <span className="font-bold text-[11px] text-slate-80s flex items-center gap-1">🚨 Alerta Auto Stock Crítico</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={enableStockWarning}
-                        onChange={(e) => {
-                          setEnableStockWarning(e.target.checked);
-                          if (e.target.checked) setNotifiedLowStocks([]);
-                          triggerPushNotification(e.target.checked ? "🔔 Alertas auto de stock activas" : "🔕 Alertas inactivas", "info");
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className="w-8 h-4.5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-red-500"></div>
-                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowResetConfirm(true)}
+                      className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95 duration-200"
+                    >
+                      <RotateCcw size={14} /> Reiniciar Ciclo de 8 Semanas
+                    </button>
                   </div>
 
-                  {enableStockWarning && (
-                    <div className="flex flex-col text-[10px] pl-2">
-                      <span className="text-slate-400">Límite de alerta:</span>
-                      <select
-                        value={stockWarningThreshold}
-                        onChange={(e) => {
-                          setStockWarningThreshold(parseFloat(e.target.value));
-                          setNotifiedLowStocks([]);
-                        }}
-                        className="font-bold bg-slate-100 rounded p-1 w-full"
-                      >
-                        <option value="1.0">≤ 1.0 porción restante</option>
-                        <option value="1.5">≤ 1.5 porciones restantes</option>
-                        <option value="2.0">≤ 2.0 porciones restantes</option>
-                      </select>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      const lows: string[] = [];
-                      if (inventory.hamburguesa <= stockWarningThreshold) lows.push("Saludables (Ham/Piz/Sus)");
-                      if (inventory.salchipapa <= stockWarningThreshold) lows.push("Salchipapas 🍟");
-                      if (inventory.extras <= stockWarningThreshold) lows.push("Extras dulces 🍧");
-
-                      if (lows.length > 0) {
-                        triggerPushNotification(`🚨 ¡Alerta Crítica PWA!: Les queda poco stock de: ${lows.join(", ")}. ¡Corten el exceso de cheat-meals!`, "block");
-                      } else {
-                        triggerPushNotification("✅ ¡Inventario Seguro!: Todos sus platos de comida superan el umbral.", "success");
-                      }
-                    }}
-                    className="w-full py-1 bg-slate-100 text-slate-700 font-extrabold text-[10px] rounded-lg cursor-pointer hover:bg-slate-200"
-                  >
-                    ⚡ Probar Alerta de Stock
-                  </button>
                 </div>
+              </div>
 
-                {/* 3. Personalized Motivational Alert */}
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center bg-slate-50/50 p-2 rounded-xl">
-                    <span className="font-bold text-[11px] text-slate-80s flex items-center gap-1">💌 Motivación Semanal Adaptable</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={enableMotivationalAlert}
-                        onChange={(e) => {
-                          setEnableMotivationalAlert(e.target.checked);
-                          triggerPushNotification(e.target.checked ? "🔔 Mensajes semanales activos" : "🔕 Mensajes apagados", "info");
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className="w-8 h-4.5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-red-500"></div>
-                    </label>
+              {/* Reset Confirm dialogue modal inline drawer */}
+              {showResetConfirm && (
+                <div className="bg-white rounded-2xl p-5 border-2 border-red-500 shadow-xl space-y-4">
+                  <div className="flex items-center gap-2 text-red-650">
+                    <AlertTriangle size={20} className="fill-red-50 text-red-600 animate-bounce" />
+                    <h4 className="font-extrabold text-sm uppercase">¿Deseas reiniciar de verdad?</h4>
                   </div>
-
-                  <button
-                    onClick={() => {
-                      let motMsg = "";
-                      switch (state.current_week) {
-                        case 1: motMsg = `✨ ¡Comenzamos este viaje de salud y amor! Respeten el déficit de lunes a viernes y celebren el fin de semana juntos.`; break;
-                        case 2: motMsg = `🔥 ¡Semana 2 activa! La consistencia inicial es la base de todo. ¡Ustedes pueden mantener el gran control!`; break;
-                        case 3: motMsg = `👟 ¡Semana 3! El motor metabólico de la pareja está encendido. Moderen salchipapas consecutivas y beban agua de lunes a viernes.`; break;
-                        case 4: motMsg = `🍧 ¡Semana 4, la mitad del camino! Un extra de helado libre está permitido si completan sus rutinas de ejercicio física.`; break;
-                        case 5: motMsg = `🎯 ¡Semana 5! Iniciamos el segundo gran tramo del ciclo. No aflojen el ritmo, su disciplina combinada vale un mundo.`; break;
-                        case 6: motMsg = `💪 ¡Semana 6! Los hábitos de comida consciente ya rinden frutos. Se ven excepcionales, continúen el enfoque en equipo.`; break;
-                        case 7: motMsg = `🔋 ¡Semana 7! Recta finalísima de las 8 semanas. Defiendan cada gramo de esfuerzo y hagan cardio compensatorio.`; break;
-                        case 8: motMsg = `🏆 ¡Semana 8, meta alcanzada! Han sido gigantes de la constancia. Prepárense para cerrar este ciclo de forma fantástica.`; break;
-                        default: motMsg = `🌟 ¡Con todo pareja! La salud y de Joss y Nati se construye plato a plato.`; break;
-                      }
-                      triggerPushNotification(`💌 Motivación: ${motMsg}`, "success");
-                    }}
-                    className="w-full py-1 bg-slate-100 text-slate-700 font-extrabold text-[10px] rounded-lg cursor-pointer hover:bg-slate-200"
-                  >
-                    ⚡ Probar Mensaje Motivacional
-                  </button>
+                  <p className="text-xs text-slate-600 leading-normal">
+                    Se borrarán todas las porciones consumidas, los extras dulces programados y las compensaciones saludables. Joss y Natt volverán al día 0.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowResetConfirm(false)}
+                      className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-black cursor-pointer text-slate-700"
+                    >
+                      No, mantener plan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetCycle}
+                      className="py-2.5 bg-red-600 hover:bg-red-700 rounded-xl text-xs font-black cursor-pointer text-white"
+                    >
+                      Sí, borrar todo
+                    </button>
+                  </div>
                 </div>
+              )}
 
-              </div>
-
-              {/* FACTORY DEVELOPER TOOLS */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-3">
-                <h3 className="font-extrabold text-xs text-slate-900 uppercase">🛠️ Opciones de Fábrica</h3>
-                <div className="flex gap-2">
-                  <button
-                    onClick={loadDemoState}
-                    className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[10px] rounded-xl cursor-pointer transition"
+              {/* Minimalist install help block for mobile devices */}
+              {pwaPromptShow && (
+                <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-3 relative">
+                  <button 
+                    onClick={() => setPwaPromptShow(false)} 
+                    className="absolute top-3 right-3 text-slate-400 hover:text-white font-extrabold text-xs"
                   >
-                    Cargar Historial Demo (S.6)
+                    ✕
                   </button>
-                  <button
-                    onClick={resetCycle}
-                    className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-[10px] rounded-xl cursor-pointer transition border border-slate-200"
-                  >
-                    Reiniciar Todo (Borrar)
-                  </button>
+                  <h4 className="font-black text-xs uppercase text-yellow-400">📲 Truco para tenerlo como una App:</h4>
+                  <p className="text-[10.5px] text-slate-300 leading-relaxed font-semibold">
+                    Esto es una <strong>PWA Oficial</strong>. Abre este enlace en el buscador de tu celular, pulsa en <strong>"Compartir"</strong> y elige <strong>"Añadir a pantalla de inicio"</strong>. ¡Trabajará como una app instalada real!
+                  </p>
                 </div>
-              </div>
+              )}
 
             </div>
           )}
 
         </main>
 
-        {/* BOTTOM NAVIGATION TAB BAR (ALWAYS VISIBLE - FIX INTERNAL SCROLL SCENARIO) */}
-        <nav className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-100/90 px-2 py-2 flex justify-around items-center z-40 shadow-lg shrink-0 rounded-b-[40px] md:rounded-b-none">
+        {/* STICKY BOTTOM NAVIGATION TABS AREA (Always visible, clean, mobile-optimized) */}
+        <nav className="bg-white border-t border-slate-100 px-3 py-2.5 shrink-0 flex items-center justify-around z-30 shadow-md">
           
+          {/* TAB 1: CALENDAR */}
           <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`flex flex-col items-center py-1 px-3.5 rounded-xl transition-all cursor-pointer ${
-              activeTab === "dashboard" ? "text-red-500 scale-105" : "text-slate-400 hover:text-slate-600"
+            type="button"
+            onClick={() => {
+              setActiveTab("calendar");
+              setShowNotificationList(false);
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none ${
+              activeTab === "calendar" 
+                ? "text-red-600 font-extrabold bg-red-50" 
+                : "text-slate-400 hover:text-slate-600"
             }`}
           >
-            <Home size={18} />
-            <span className="text-[9px] font-black mt-0.5 tracking-tight">Inicio</span>
+            <Calendar size={18} className={activeTab === "calendar" ? "stroke-[2.5]" : "stroke-2"} />
+            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Calendario</span>
           </button>
 
+          {/* TAB 2: PORTION STOCK COUNTERS */}
           <button
-            onClick={() => setActiveTab("inventory")}
-            className={`flex flex-col items-center py-1 px-3.5 rounded-xl transition-all cursor-pointer ${
-              activeTab === "inventory" ? "text-red-500 scale-105" : "text-slate-400 hover:text-slate-600"
+            type="button"
+            onClick={() => {
+              setActiveTab("inventory");
+              setShowNotificationList(false);
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none relative ${
+              activeTab === "inventory" 
+                ? "text-red-600 font-extrabold bg-red-50" 
+                : "text-slate-400 hover:text-slate-600"
             }`}
           >
-            <Database size={18} />
-            <span className="text-[9px] font-black mt-0.5 tracking-tight">Abastos</span>
+            <Sliders size={18} className={activeTab === "inventory" ? "stroke-[2.5]" : "stroke-2"} />
+            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Porciones</span>
+            {hasLowStocks && (
+              <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+            )}
           </button>
 
+          {/* TAB 3: CASTIGOS */}
           <button
-            onClick={() => setActiveTab("map")}
-            className={`flex flex-col items-center py-1 px-3.5 rounded-xl transition-all cursor-pointer ${
-              activeTab === "map" ? "text-red-500 scale-105" : "text-slate-400 hover:text-slate-600"
+            type="button"
+            onClick={() => {
+              setActiveTab("penance");
+              setShowNotificationList(false);
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none relative ${
+              activeTab === "penance" 
+                ? "text-red-600 font-extrabold bg-red-50" 
+                : "text-slate-400 hover:text-slate-600"
             }`}
           >
-            <Calendar size={18} />
-            <span className="text-[9px] font-black mt-0.5 tracking-tight">Mapa</span>
+            <Zap size={18} className={activeTab === "penance" ? "stroke-[2.5]" : "stroke-2"} />
+            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Castigos</span>
+            {activePenancesCount > 0 && (
+              <span className="absolute -top-0.5 right-1 bg-amber-500 text-white font-black text-[8px] px-1.5 py-0.5 rounded-full leading-none shrink-0 min-w-4 text-center">
+                {activePenancesCount}
+              </span>
+            )}
           </button>
 
+          {/* TAB 4: SETTINGS */}
           <button
-            onClick={() => setActiveTab("ai")}
-            className={`flex flex-col items-center py-1 px-3.5 rounded-xl transition-all cursor-pointer ${
-              activeTab === "ai" ? "text-red-500 scale-105" : "text-slate-400 hover:text-slate-600 font-semibold"
+            type="button"
+            onClick={() => {
+              setActiveTab("settings");
+              setShowNotificationList(false);
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition cursor-pointer select-none ${
+              activeTab === "settings" 
+                ? "text-red-600 font-extrabold bg-red-50" 
+                : "text-slate-400 hover:text-slate-600"
             }`}
           >
-            <div className="relative">
-              <MessageSquare size={18} />
-              <span className="absolute -top-1 -right-1.5 w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-            </div>
-            <span className="text-[9px] font-black mt-0.5 tracking-tight">IA Chat</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("settings")}
-            className={`flex flex-col items-center py-1 px-3.5 rounded-xl transition-all cursor-pointer ${
-              activeTab === "settings" ? "text-red-500 scale-105" : "text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            <Settings size={18} />
-            <span className="text-[9px] font-black mt-0.5 tracking-tight">Ajustes</span>
+            <Settings size={18} className={activeTab === "settings" ? "stroke-[2.5]" : "stroke-2"} />
+            <span className="text-[9px] mt-1 font-black uppercase tracking-tight">Ajustes</span>
           </button>
 
         </nav>
-
-        {/* CUSTOM DESTRUCTION RESET CONFIRMATION DIALOG */}
-        {showResetConfirm && (
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-white rounded-3xl p-5 max-w-xs w-full shadow-2xl border border-slate-100 flex flex-col gap-3 text-slate-800 text-xs text-center">
-              <span className="text-3xl">⚠️</span>
-              <h3 className="font-extrabold text-slate-900 text-sm">¿Reiniciar todo el ciclo?</h3>
-              <p className="text-slate-500 leading-normal">Se borrará de forma irreversible el historial registrado de todas las semanas.</p>
-              
-              <div className="flex gap-2 justify-center mt-2 pt-2 border-t border-slate-100">
-                <button
-                  onClick={() => setShowResetConfirm(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700 transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    setState(getInitialState());
-                    setShowResetConfirm(false);
-                    triggerPushNotification("🚀 Nuevo ciclo de 8 semanas iniciado con éxito.", "success");
-                    setActiveTab("dashboard");
-                  }}
-                  className="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-black transition cursor-pointer"
-                >
-                  Confirmar
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
       </div>
     </div>

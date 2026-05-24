@@ -2,18 +2,21 @@
  * FitCycle State and API Interfaces
  */
 
-export type MealType = "Hamburguesa" | "Salchipapa" | "Pizza" | "Sushi" | "Otra";
+export type MealType = "Hamburguesa" | "Salchipapa" | "Pizza" | "Sushi" | "Perro Caliente" | "Sándwich Callejero" | "Arepa";
 
 export interface SemanalInfo {
   semana: number;
   cena_novio: MealType | null;
   cena_novia: MealType | null;
-  cena: MealType | null; // Unified for backward compatibility or display
+  cena: MealType | null; // Unified select
   extra: boolean;
+  castigo_task?: string; // Auto-generated healthy penalty task
+  castigo_completed?: boolean; // Whether they completed the healthy corrective penance
 }
 
 export interface FitCycleState {
   current_week: number;
+  cycle_start_date: string | null; // Real calendar start date
   history: SemanalInfo[];
 }
 
